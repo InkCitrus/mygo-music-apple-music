@@ -3083,17 +3083,8 @@ async function lyrics(options) {
 }
 async function remotePlay(options) {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
-  let start = Math.max(0, Number(options?.start) || 0);
+  const start = Math.max(0, Number(options?.start) || 0);
   const position = Math.max(0, Number(options?.position) || 0);
-  if (start === 0 && ids.length > 1) {
-    const natural = naturalSequences.get(ids[0]);
-    const isShuffleDetected = Boolean(
-      options?.shuffle || natural && natural.length > 1 && natural[1] !== ids[1] || natural && natural.length >= 3 && (natural[1] !== ids[1] || natural[2] !== ids[2])
-    );
-    if (isShuffleDetected) {
-      start = Math.floor(Math.random() * ids.length);
-    }
-  }
   const targetId = ids[start];
   if (!targetId) {
     throw fail("unavailable", tr("This track is unavailable for streaming"));

@@ -2755,28 +2755,8 @@ export async function remotePlay(options: {
   shuffle?: boolean;
 }): Promise<void> {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
-  let start = Math.max(0, Number(options?.start) || 0);
+  const start = Math.max(0, Number(options?.start) || 0);
   const position = Math.max(0, Number(options?.position) || 0);
-
-  // When user clicks "Shuffle" on a playlist or album in MyGo Music:
-  // MyGo calls PlayQueue(tracks, 0) with shuffle=true.
-  // MyGo's internal shuffleOrder(0) shuffles the order, but pins track 0 to order[0]!
-  // Consequently, remotePlay receives ids with ids[0] == track 0, but ids[1..n] shuffled.
-  // If we just play start=0, the user ALWAYS hears track 1 on Shuffle, identical to Play!
-  // Detect if the queue is shuffled and start is 0:
-  if (start === 0 && ids.length > 1) {
-    const natural = naturalSequences.get(ids[0]);
-    const isShuffleDetected = Boolean(
-      (options as any)?.shuffle ||
-      (natural && natural.length > 1 && natural[1] !== ids[1]) ||
-      (natural && natural.length >= 3 && (natural[1] !== ids[1] || natural[2] !== ids[2]))
-    );
-
-    if (isShuffleDetected) {
-      // Pick a random track index so shuffle starts playing a truly random track!
-      start = Math.floor(Math.random() * ids.length);
-    }
-  }
 
   const targetId = ids[start];
   if (!targetId) {

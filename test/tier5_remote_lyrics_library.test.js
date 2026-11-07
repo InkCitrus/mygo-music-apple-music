@@ -1663,7 +1663,7 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assertIncludes(lastSpawn.stdin, "cmd=playStoreID&id=1647466804");
   });
 
-  test("5.4.19: remotePlay in shuffle mode detects shuffled queue and plays a random track instead of song 0", async () => {
+  test("5.4.19: remotePlay respects MyGo Music queue order and start index synchronously without jitter", async () => {
     host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
 
     const songs = [
@@ -1697,49 +1697,24 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
           );
         }
       }
-      if (u.includes("/me/library/playlists/p.fav")) {
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: "p.fav",
-                relationships: {
-                  tracks: {
-                    data: songs.map((s) => ({
-                      id: s.id,
-                      attributes: { name: s.name, playParams: { id: s.id } },
-                    })),
-                  },
-                },
-              },
-            ],
-          }),
-          { status: 200 }
-        );
-      }
       return new Response("{}", { status: 404 });
     };
 
-    // First load the playlist in natural order: [1001, 1002, 1003, 1004, 1005]
-    await plugin.playlist({ id: "p.fav" });
-
-    // Scenario A: User clicks "Play" -> natural sequence [1001, 1002, 1003, ...]
+    // Scenario A: User clicks "Play" -> natural sequence [1001, 1002, 1003, ...] with start: 0
     await plugin.remotePlay({ ids: ["1001", "1002", "1003", "1004", "1005"], start: 0 });
     let spawns = host._getSpawnHistory();
     assertIncludes(spawns[spawns.length - 1].stdin, "cmd=playStoreID&id=1001");
 
-    // Scenario B: User clicks "Shuffle" -> MyGo's shuffleOrder pins 1001 to index 0, but shuffles rest
-    // Shuffled queue passed by MyGo: [1001, 1004, 1002, 1005, 1003]
-    const playedCatalogIds = new Set();
-    for (let trial = 0; trial < 20; trial++) {
-      await plugin.remotePlay({ ids: ["1001", "1004", "1002", "1005", "1003"], start: 0 });
-      spawns = host._getSpawnHistory();
-      const lastStdin = spawns[spawns.length - 1].stdin;
-      const match = lastStdin.match(/cmd=playStoreID&id=(\d+)/);
-      if (match) playedCatalogIds.add(match[1]);
-    }
-    // Over 20 trials across 5 tracks, random selection must hit tracks other than 1001!
-    assert(playedCatalogIds.size > 1, `shuffle must select multiple distinct tracks, got: ${Array.from(playedCatalogIds)}`);
+    // Scenario B: User clicks "Shuffle" -> MyGo's shuffleOrder pins 1001 to index 0, queue [1001, 1004, 1002, ...]
+    // Option A ensures zero delay/jump by playing 1001 directly in perfect sync with MyGo UI
+    await plugin.remotePlay({ ids: ["1001", "1004", "1002", "1005", "1003"], start: 0 });
+    spawns = host._getSpawnHistory();
+    assertIncludes(spawns[spawns.length - 1].stdin, "cmd=playStoreID&id=1001");
+
+    // Scenario C: User clicks a specific track in the playlist (e.g. track index 2 -> 1002)
+    await plugin.remotePlay({ ids: ["1001", "1004", "1002", "1005", "1003"], start: 2 });
+    spawns = host._getSpawnHistory();
+    assertIncludes(spawns[spawns.length - 1].stdin, "cmd=playStoreID&id=1002");
   });
 
   test("5.4.20: remotePlay on radio station sets isStation to true and uses itsradio scheme without library check", async () => {
