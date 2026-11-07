@@ -98,6 +98,12 @@ export function escapeAppleScriptString(value: string): string {
 export function toMusicAppUrl(rawUrl: string | undefined, sf: string, songId: string, albumId?: string): string {
   const cleanId = String(songId || "").trim();
   const cleanSf = (sf || "us").trim().toLowerCase();
+  if (cleanId.startsWith("ra.")) {
+    if (rawUrl && typeof rawUrl === "string" && rawUrl.includes("/station/")) {
+      return rawUrl.trim().replace(/^https?:\/\//i, "itsradio://").replace(/^music:\/\//i, "itsradio://");
+    }
+    return `itsradio://music.apple.com/${cleanSf}/station/${encodeURIComponent(cleanId)}`;
+  }
   if (rawUrl && typeof rawUrl === "string") {
     const trimmed = rawUrl.trim();
     if (
@@ -113,9 +119,6 @@ export function toMusicAppUrl(rawUrl: string | undefined, sf: string, songId: st
     }
   }
   if (!cleanId) return "";
-  if (cleanId.startsWith("ra.")) {
-    return `music://music.apple.com/${cleanSf}/station/_/${encodeURIComponent(cleanId)}`;
-  }
   if (albumId && /^\d+$/.test(albumId)) {
     return `music://music.apple.com/${cleanSf}/album/_/${albumId}?i=${encodeURIComponent(cleanId)}`;
   }
@@ -164,6 +167,7 @@ set targetArtist to "${safeArtist}"
 set targetURL to "${safeUrl}"
 set playStoreURL to "${safePlayStoreUrl}"
 set startPos to ${posSec.toFixed(3)}
+set isStation to (targetURL contains "/station/" or targetURL starts with "itsradio://")
 
 set prevApp to ""
 try
@@ -181,7 +185,7 @@ tell application "Music"
   end try
 
   set playedFromLib to false
-  if targetName is not "" then
+  if isStation is false and targetName is not "" then
     try
       ignoring case
         if targetArtist is not "" then
@@ -207,20 +211,29 @@ tell application "Music"
     try
       stop
     end try
-    if playStoreURL is not "" and targetURL does not contain "/album/" and targetURL does not contain "/station/" then
+    if playStoreURL is not "" then
       open location playStoreURL
     else
       open location targetURL
     end if
-    repeat with waitIdx from 1 to 20
-      delay 0.25
-      try
-        if player state is playing then exit repeat
-        if waitIdx >= 8 and player state is paused then
-          play
-        end if
-      end try
-    end repeat
+    if isStation is true then
+      repeat with waitIdx from 1 to 30
+        delay 0.25
+        try
+          if player state is playing then exit repeat
+        end try
+      end repeat
+    else
+      repeat with waitIdx from 1 to 20
+        delay 0.25
+        try
+          if player state is playing then exit repeat
+          if waitIdx >= 8 and player state is paused then
+            play
+          end if
+        end try
+      end repeat
+    end if
   end if
 
   if startPos > 0 then

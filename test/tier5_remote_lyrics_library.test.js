@@ -1618,4 +1618,159 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     const lastSpawn = spawns[spawns.length - 1];
     assertIncludes(lastSpawn.stdin, "station/apple-music-hits/ra.1498155548");
   });
+
+  test("5.4.17: plugin.json contains crossfadeTip setting explaining why Music.app crossfade should be disabled", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "plugin.json"), "utf8"));
+    assertEquals(manifest.version, "0.2.4");
+    const cfSetting = manifest.settings.find((s) => s.key === "crossfadeTip");
+    assertTruthy(cfSetting, "manifest must contain crossfadeTip setting");
+    assertIncludes(cfSetting.help, "歌曲渐变");
+    assertIncludes(cfSetting.help, "MyGo Music");
+  });
+
+  test("5.4.18: remotePlay on catalog album song uses playStoreURL to immediately autoplay", async () => {
+    host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/catalog/jp/songs/1647466804")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "1647466804",
+                attributes: {
+                  name: "hitoribocchi tokyo",
+                  artistName: "kessoku band",
+                  url: "https://music.apple.com/jp/album/hitoribocchi-tokyo/1647466795?i=1647466804",
+                  durationInMillis: 213000,
+                  playParams: { id: "1647466804", kind: "song" },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    await plugin.remotePlay({ ids: ["1647466804"], start: 0, position: 0 });
+    const spawns = host._getSpawnHistory();
+    const lastSpawn = spawns[spawns.length - 1];
+    assertIncludes(lastSpawn.stdin, "open location playStoreURL");
+    assertIncludes(lastSpawn.stdin, "cmd=playStoreID&id=1647466804");
+  });
+
+  test("5.4.19: remotePlay in shuffle mode detects shuffled queue and plays a random track instead of song 0", async () => {
+    host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+
+    const songs = [
+      { id: "1001", name: "Track 1" },
+      { id: "1002", name: "Track 2" },
+      { id: "1003", name: "Track 3" },
+      { id: "1004", name: "Track 4" },
+      { id: "1005", name: "Track 5" },
+    ];
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      for (const s of songs) {
+        if (u.includes(`/catalog/jp/songs/${s.id}`)) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: s.id,
+                  attributes: {
+                    name: s.name,
+                    artistName: "Artist",
+                    url: `https://music.apple.com/jp/album/_/999?i=${s.id}`,
+                    durationInMillis: 200000,
+                    playParams: { id: s.id, kind: "song" },
+                  },
+                },
+              ],
+            }),
+            { status: 200 }
+          );
+        }
+      }
+      if (u.includes("/me/library/playlists/p.fav")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "p.fav",
+                relationships: {
+                  tracks: {
+                    data: songs.map((s) => ({
+                      id: s.id,
+                      attributes: { name: s.name, playParams: { id: s.id } },
+                    })),
+                  },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    // First load the playlist in natural order: [1001, 1002, 1003, 1004, 1005]
+    await plugin.playlist({ id: "p.fav" });
+
+    // Scenario A: User clicks "Play" -> natural sequence [1001, 1002, 1003, ...]
+    await plugin.remotePlay({ ids: ["1001", "1002", "1003", "1004", "1005"], start: 0 });
+    let spawns = host._getSpawnHistory();
+    assertIncludes(spawns[spawns.length - 1].stdin, "cmd=playStoreID&id=1001");
+
+    // Scenario B: User clicks "Shuffle" -> MyGo's shuffleOrder pins 1001 to index 0, but shuffles rest
+    // Shuffled queue passed by MyGo: [1001, 1004, 1002, 1005, 1003]
+    const playedCatalogIds = new Set();
+    for (let trial = 0; trial < 20; trial++) {
+      await plugin.remotePlay({ ids: ["1001", "1004", "1002", "1005", "1003"], start: 0 });
+      spawns = host._getSpawnHistory();
+      const lastStdin = spawns[spawns.length - 1].stdin;
+      const match = lastStdin.match(/cmd=playStoreID&id=(\d+)/);
+      if (match) playedCatalogIds.add(match[1]);
+    }
+    // Over 20 trials across 5 tracks, random selection must hit tracks other than 1001!
+    assert(playedCatalogIds.size > 1, `shuffle must select multiple distinct tracks, got: ${Array.from(playedCatalogIds)}`);
+  });
+
+  test("5.4.20: remotePlay on radio station sets isStation to true and uses itsradio scheme without library check", async () => {
+    host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/catalog/jp/stations/ra.1498155548")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ra.1498155548",
+                attributes: {
+                  name: "Apple Music Hits",
+                  url: "https://music.apple.com/jp/station/apple-music-hits/ra.1498155548",
+                  artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/51c24bce/{w}x{h}sr.jpg" },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    await plugin.remotePlay({ ids: ["ra.1498155548"], start: 0, position: 0 });
+    const spawns = host._getSpawnHistory();
+    const lastSpawn = spawns[spawns.length - 1];
+    assertIncludes(lastSpawn.stdin, "set isStation to (targetURL contains \"/station/\" or targetURL starts with \"itsradio://\")");
+    assertIncludes(lastSpawn.stdin, "if isStation is false and targetName is not \"\"");
+    assertIncludes(lastSpawn.stdin, "itsradio://music.apple.com/jp/station/apple-music-hits/ra.1498155548");
+  });
 });

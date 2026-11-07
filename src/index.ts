@@ -574,6 +574,7 @@ export async function search(options: {
     mappedItems = items.map(mapPlaylist);
   } else {
     mappedItems = items.map(mapTrack);
+    registerNaturalTrackOrder(mappedItems);
   }
 
   return {
@@ -1992,6 +1993,7 @@ export async function album(options: { id: string }): Promise<AlbumPage> {
     }
   }
   const tracks = trackItems.map(mapTrack);
+  registerNaturalTrackOrder(tracks);
 
   return {
     album: alb,
@@ -2225,6 +2227,7 @@ export async function playlist(options: { id: string }): Promise<Playlist> {
     }
     pl.tracks = trackItems.map(mapTrack);
     pl.trackCount = pl.tracks.length;
+    registerNaturalTrackOrder(pl.tracks);
     return pl;
   }
 
@@ -2238,6 +2241,7 @@ export async function playlist(options: { id: string }): Promise<Playlist> {
   const pl = mapPlaylist(item);
   const trackItems = item.relationships?.tracks?.data || [];
   pl.tracks = trackItems.map(mapTrack);
+  registerNaturalTrackOrder(pl.tracks);
 
   return pl;
 }
@@ -2280,6 +2284,21 @@ export async function addToPlaylist(options: {
   });
 }
 
+// Tracks natural sequence of returned playlists / albums to detect user Shuffle clicks
+const naturalSequences = new Map<string, string[]>();
+
+export function registerNaturalTrackOrder(tracks: any[]): void {
+  if (!Array.isArray(tracks) || tracks.length < 2) return;
+  const ids = tracks.map((t) => String(t?.id ?? "")).filter(Boolean);
+  if (ids.length >= 2) {
+    naturalSequences.set(ids[0], ids);
+    if (naturalSequences.size > 100) {
+      const oldestKey = naturalSequences.keys().next().value;
+      if (oldestKey) naturalSequences.delete(oldestKey);
+    }
+  }
+}
+
 export async function liked(options?: { offset?: number }): Promise<Page> {
   const offset = Math.max(0, Number(options?.offset) || 0);
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
@@ -2296,8 +2315,10 @@ export async function liked(options?: { offset?: number }): Promise<Page> {
       offset,
       maxPages
     );
+    const mappedTracks = rawItems.map(mapTrack);
+    registerNaturalTrackOrder(mappedTracks);
     return {
-      tracks: rawItems.map(mapTrack),
+      tracks: mappedTracks,
       more: hasMore,
     };
   }
@@ -2307,8 +2328,10 @@ export async function liked(options?: { offset?: number }): Promise<Page> {
     { requireAuth: true }
   );
   const items = json.data || [];
+  const mappedTracks = items.map(mapTrack);
+  registerNaturalTrackOrder(mappedTracks);
   return {
-    tracks: items.map(mapTrack),
+    tracks: mappedTracks,
     more: Boolean(json.next),
   };
 }
@@ -2506,7 +2529,9 @@ export async function recent(): Promise<Track[]> {
         requireAuth: true,
       });
       if (Array.isArray(json?.data) && json.data.length > 0) {
-        return json.data.map(mapTrack);
+        const mapped = json.data.map(mapTrack);
+        registerNaturalTrackOrder(mapped);
+        return mapped;
       }
     } catch {
       // Fall back to local recent list
@@ -2727,10 +2752,32 @@ export async function remotePlay(options: {
   ids: string[];
   start?: number;
   position?: number;
+  shuffle?: boolean;
 }): Promise<void> {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
-  const start = Math.max(0, Number(options?.start) || 0);
+  let start = Math.max(0, Number(options?.start) || 0);
   const position = Math.max(0, Number(options?.position) || 0);
+
+  // When user clicks "Shuffle" on a playlist or album in MyGo Music:
+  // MyGo calls PlayQueue(tracks, 0) with shuffle=true.
+  // MyGo's internal shuffleOrder(0) shuffles the order, but pins track 0 to order[0]!
+  // Consequently, remotePlay receives ids with ids[0] == track 0, but ids[1..n] shuffled.
+  // If we just play start=0, the user ALWAYS hears track 1 on Shuffle, identical to Play!
+  // Detect if the queue is shuffled and start is 0:
+  if (start === 0 && ids.length > 1) {
+    const natural = naturalSequences.get(ids[0]);
+    const isShuffleDetected = Boolean(
+      (options as any)?.shuffle ||
+      (natural && natural.length > 1 && natural[1] !== ids[1]) ||
+      (natural && natural.length >= 3 && (natural[1] !== ids[1] || natural[2] !== ids[2]))
+    );
+
+    if (isShuffleDetected) {
+      // Pick a random track index so shuffle starts playing a truly random track!
+      start = Math.floor(Math.random() * ids.length);
+    }
+  }
+
   const targetId = ids[start];
   if (!targetId) {
     throw fail("unavailable", tr("This track is unavailable for streaming"));

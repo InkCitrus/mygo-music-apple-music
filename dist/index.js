@@ -35,6 +35,12 @@ function escapeAppleScriptString(value) {
 function toMusicAppUrl(rawUrl, sf, songId, albumId) {
   const cleanId = String(songId || "").trim();
   const cleanSf = (sf || "us").trim().toLowerCase();
+  if (cleanId.startsWith("ra.")) {
+    if (rawUrl && typeof rawUrl === "string" && rawUrl.includes("/station/")) {
+      return rawUrl.trim().replace(/^https?:\/\//i, "itsradio://").replace(/^music:\/\//i, "itsradio://");
+    }
+    return `itsradio://music.apple.com/${cleanSf}/station/${encodeURIComponent(cleanId)}`;
+  }
   if (rawUrl && typeof rawUrl === "string") {
     const trimmed = rawUrl.trim();
     if (trimmed.startsWith("music://") || trimmed.startsWith("musics://") || trimmed.startsWith("itmss://") || trimmed.startsWith("itsradio://")) {
@@ -45,9 +51,6 @@ function toMusicAppUrl(rawUrl, sf, songId, albumId) {
     }
   }
   if (!cleanId) return "";
-  if (cleanId.startsWith("ra.")) {
-    return `music://music.apple.com/${cleanSf}/station/_/${encodeURIComponent(cleanId)}`;
-  }
   if (albumId && /^\d+$/.test(albumId)) {
     return `music://music.apple.com/${cleanSf}/album/_/${albumId}?i=${encodeURIComponent(cleanId)}`;
   }
@@ -86,6 +89,7 @@ set targetArtist to "${safeArtist}"
 set targetURL to "${safeUrl}"
 set playStoreURL to "${safePlayStoreUrl}"
 set startPos to ${posSec.toFixed(3)}
+set isStation to (targetURL contains "/station/" or targetURL starts with "itsradio://")
 
 set prevApp to ""
 try
@@ -103,7 +107,7 @@ tell application "Music"
   end try
 
   set playedFromLib to false
-  if targetName is not "" then
+  if isStation is false and targetName is not "" then
     try
       ignoring case
         if targetArtist is not "" then
@@ -129,20 +133,29 @@ tell application "Music"
     try
       stop
     end try
-    if playStoreURL is not "" and targetURL does not contain "/album/" and targetURL does not contain "/station/" then
+    if playStoreURL is not "" then
       open location playStoreURL
     else
       open location targetURL
     end if
-    repeat with waitIdx from 1 to 20
-      delay 0.25
-      try
-        if player state is playing then exit repeat
-        if waitIdx >= 8 and player state is paused then
-          play
-        end if
-      end try
-    end repeat
+    if isStation is true then
+      repeat with waitIdx from 1 to 30
+        delay 0.25
+        try
+          if player state is playing then exit repeat
+        end try
+      end repeat
+    else
+      repeat with waitIdx from 1 to 20
+        delay 0.25
+        try
+          if player state is playing then exit repeat
+          if waitIdx >= 8 and player state is paused then
+            play
+          end if
+        end try
+      end repeat
+    end if
   end if
 
   if startPos > 0 then
@@ -1269,6 +1282,7 @@ async function search(options) {
     mappedItems = items.map(mapPlaylist);
   } else {
     mappedItems = items.map(mapTrack);
+    registerNaturalTrackOrder(mappedItems);
   }
   return {
     [kind]: mappedItems,
@@ -2416,6 +2430,7 @@ async function album(options) {
     }
   }
   const tracks = trackItems.map(mapTrack);
+  registerNaturalTrackOrder(tracks);
   return {
     album: alb,
     tracks
@@ -2611,6 +2626,7 @@ async function playlist(options) {
     }
     pl2.tracks = trackItems2.map(mapTrack);
     pl2.trackCount = pl2.tracks.length;
+    registerNaturalTrackOrder(pl2.tracks);
     return pl2;
   }
   const sf = await getStorefront();
@@ -2622,6 +2638,7 @@ async function playlist(options) {
   const pl = mapPlaylist(item);
   const trackItems = item.relationships?.tracks?.data || [];
   pl.tracks = trackItems.map(mapTrack);
+  registerNaturalTrackOrder(pl.tracks);
   return pl;
 }
 async function createPlaylist(options) {
@@ -2657,6 +2674,18 @@ async function addToPlaylist(options) {
     body: JSON.stringify({ data })
   });
 }
+var naturalSequences = /* @__PURE__ */ new Map();
+function registerNaturalTrackOrder(tracks) {
+  if (!Array.isArray(tracks) || tracks.length < 2) return;
+  const ids = tracks.map((t) => String(t?.id ?? "")).filter(Boolean);
+  if (ids.length >= 2) {
+    naturalSequences.set(ids[0], ids);
+    if (naturalSequences.size > 100) {
+      const oldestKey = naturalSequences.keys().next().value;
+      if (oldestKey) naturalSequences.delete(oldestKey);
+    }
+  }
+}
 async function liked(options) {
   const offset = Math.max(0, Number(options?.offset) || 0);
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
@@ -2672,8 +2701,10 @@ async function liked(options) {
       offset,
       maxPages
     );
+    const mappedTracks2 = rawItems.map(mapTrack);
+    registerNaturalTrackOrder(mappedTracks2);
     return {
-      tracks: rawItems.map(mapTrack),
+      tracks: mappedTracks2,
       more: hasMore
     };
   }
@@ -2682,8 +2713,10 @@ async function liked(options) {
     { requireAuth: true }
   );
   const items = json.data || [];
+  const mappedTracks = items.map(mapTrack);
+  registerNaturalTrackOrder(mappedTracks);
   return {
-    tracks: items.map(mapTrack),
+    tracks: mappedTracks,
     more: Boolean(json.next)
   };
 }
@@ -2858,7 +2891,9 @@ async function recent() {
         requireAuth: true
       });
       if (Array.isArray(json?.data) && json.data.length > 0) {
-        return json.data.map(mapTrack);
+        const mapped = json.data.map(mapTrack);
+        registerNaturalTrackOrder(mapped);
+        return mapped;
       }
     } catch {
     }
@@ -3042,8 +3077,17 @@ async function lyrics(options) {
 }
 async function remotePlay(options) {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
-  const start = Math.max(0, Number(options?.start) || 0);
+  let start = Math.max(0, Number(options?.start) || 0);
   const position = Math.max(0, Number(options?.position) || 0);
+  if (start === 0 && ids.length > 1) {
+    const natural = naturalSequences.get(ids[0]);
+    const isShuffleDetected = Boolean(
+      options?.shuffle || natural && natural.length > 1 && natural[1] !== ids[1] || natural && natural.length >= 3 && (natural[1] !== ids[1] || natural[2] !== ids[2])
+    );
+    if (isShuffleDetected) {
+      start = Math.floor(Math.random() * ids.length);
+    }
+  }
   const targetId = ids[start];
   if (!targetId) {
     throw fail("unavailable", tr("This track is unavailable for streaming"));
@@ -3576,6 +3620,7 @@ export {
   playlists,
   readMusicAppAudioQuality,
   recent,
+  registerNaturalTrackOrder,
   remoteDevices,
   remotePause,
   remotePlay,
