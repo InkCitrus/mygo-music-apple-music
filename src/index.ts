@@ -1363,14 +1363,14 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
     });
   }
 
-  const handleLabel =
-    acc?.id && !acc.id.startsWith("apple-music-") ? `@${acc.id} · ` : "";
+  const hasHandle = Boolean(acc?.id && !acc.id.startsWith("apple-music-"));
+  const subtitle = hasHandle ? `@${acc!.id}` : undefined;
   const qualSuffix = liveQuality ? ` · ${formatAudioQualityLabel(liveQuality)}` : "";
-  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})${qualSuffix}`;
+  const desc = `Apple Music (${sf.toUpperCase()})${qualSuffix}`;
 
   return {
     title: acc?.name || tr("Library"),
-    subtitle: desc,
+    subtitle,
     description: desc,
     imageUrl: acc?.imageUrl || undefined,
     sections,

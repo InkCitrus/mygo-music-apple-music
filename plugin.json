@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",

@@ -1802,12 +1802,13 @@ async function buildMyPageBrowse(sf, lang) {
       morePage: "recent"
     });
   }
-  const handleLabel = acc?.id && !acc.id.startsWith("apple-music-") ? `@${acc.id} \xB7 ` : "";
+  const hasHandle = Boolean(acc?.id && !acc.id.startsWith("apple-music-"));
+  const subtitle = hasHandle ? `@${acc.id}` : void 0;
   const qualSuffix = liveQuality ? ` \xB7 ${formatAudioQualityLabel(liveQuality)}` : "";
-  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})${qualSuffix}`;
+  const desc = `Apple Music (${sf.toUpperCase()})${qualSuffix}`;
   return {
     title: acc?.name || tr("Library"),
-    subtitle: desc,
+    subtitle,
     description: desc,
     imageUrl: acc?.imageUrl || void 0,
     sections

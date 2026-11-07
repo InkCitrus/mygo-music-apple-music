@@ -833,7 +833,9 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
 
     const myPage = await plugin.browse({ page: "library" });
     assertEquals(myPage.title, "InkCitrus");
-    assertIncludes(myPage.description, "@inkcitrus");
+    assertEquals(myPage.subtitle, "@inkcitrus");
+    assertIncludes(myPage.description, "Apple Music (JP)");
+    assert(myPage.subtitle !== myPage.description, "My Page subtitle and description must not duplicate");
     assertTruthy(myPage.imageUrl, "My Page should include user round avatar");
     const sectionTitles = myPage.sections.map((s) => s.title);
     assertIncludes(sectionTitles, "Heavy Rotation");
@@ -1296,6 +1298,8 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), { status: 200 });
 
     const myPage = await plugin.browse({ page: "library" });
-    assertIncludes(myPage.subtitle, "Lossless (24-bit/48 kHz)");
+    assertEquals(myPage.subtitle, "@zichenwu");
+    assertIncludes(myPage.description, "Lossless (24-bit/48 kHz)");
+    assert(myPage.subtitle !== myPage.description, "My Page subtitle and description must not duplicate");
   });
 });
