@@ -841,4 +841,359 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assertIncludes(sectionTitles, "My Playlists");
     assertIncludes(sectionTitles, "Recently Played");
   });
+
+  test("5.4.12: home() syncs personalized Apple Music Listen Now shelves (Anime, Yorushika Fans Like, Find Your Mood, Made for You, Stations)", async () => {
+    await host.storage.set("auth", {
+      mediaUserToken: "sub_tok_home",
+      storefront: "jp",
+      profileVersion: 2,
+      account: { id: "zichenwu", name: "ZichenWu", page: "library" },
+    });
+    await host.storage.set("developer_token", "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig");
+    await host.storage.set("developer_token_exp", Date.now() + 10_000_000);
+
+    globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/me/recommendations/rec-anime/view/see-all")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "rec-anime", type: "personal-recommendation" }],
+            resources: {
+              "personal-recommendation": {
+                "rec-anime": {
+                  id: "rec-anime",
+                  type: "personal-recommendation",
+                  attributes: { title: { stringForDisplay: "Anime" } },
+                  relationships: {
+                    contents: {
+                      data: [
+                        { id: "alb-1", type: "albums" },
+                        { id: "alb-2", type: "albums" },
+                      ],
+                    },
+                  },
+                },
+              },
+              albums: {
+                "alb-1": {
+                  id: "alb-1",
+                  type: "albums",
+                  attributes: { name: "Shuwarin☆Dreaming - EP", artistName: "Pastel*Palettes" },
+                },
+                "alb-2": {
+                  id: "alb-2",
+                  type: "albums",
+                  attributes: { name: "Kessoku Band Concert", artistName: "kessoku band" },
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("/me/recommendations") && url.includes("name=listen-now")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "rec-anime", type: "personal-recommendation" },
+              { id: "rec-fans", type: "personal-recommendation" },
+              { id: "rec-made", type: "personal-recommendation" },
+              { id: "rec-mood", type: "personal-recommendation" },
+              { id: "rec-radio", type: "personal-recommendation" },
+            ],
+            resources: {
+              "personal-recommendation": {
+                "rec-anime": {
+                  id: "rec-anime",
+                  type: "personal-recommendation",
+                  attributes: {
+                    title: { stringForDisplay: "Anime" },
+                    hasSeeAll: true,
+                  },
+                  relationships: {
+                    contents: {
+                      data: [
+                        { id: "alb-1", type: "albums" },
+                        { id: "l.alb99", type: "library-albums" },
+                      ],
+                    },
+                  },
+                },
+                "rec-fans": {
+                  id: "rec-fans",
+                  type: "personal-recommendation",
+                  attributes: {
+                    titleWithoutName: { stringForDisplay: "Fans Like" },
+                  },
+                  relationships: {
+                    "primary-content": {
+                      data: [{ id: "art-yorushika", type: "artists" }],
+                    },
+                    contents: {
+                      data: [{ id: "alb-yoru", type: "albums" }],
+                    },
+                  },
+                },
+                "rec-made": {
+                  id: "rec-made",
+                  type: "personal-recommendation",
+                  attributes: {
+                    title: { stringForDisplay: "Made for You" },
+                    isGroupRecommendation: true,
+                  },
+                  relationships: {
+                    contents: {
+                      data: [{ id: "rec-made-child", type: "personal-recommendation" }],
+                    },
+                  },
+                },
+                "rec-made-child": {
+                  id: "rec-made-child",
+                  type: "personal-recommendation",
+                  relationships: {
+                    contents: {
+                      data: [{ id: "pl.favmix", type: "playlists" }],
+                    },
+                  },
+                },
+                "rec-mood": {
+                  id: "rec-mood",
+                  type: "personal-recommendation",
+                  attributes: {
+                    title: { stringForDisplay: "Find Your Mood" },
+                  },
+                  relationships: {
+                    contents: {
+                      data: [{ id: "1555167098", type: "apple-curators" }],
+                    },
+                  },
+                },
+                "rec-radio": {
+                  id: "rec-radio",
+                  type: "personal-recommendation",
+                  attributes: {
+                    title: { stringForDisplay: "Stations for You" },
+                  },
+                  relationships: {
+                    contents: {
+                      data: [
+                        { id: "ra.personal1", type: "stations" },
+                        { id: "ra.live1", type: "stations" },
+                      ],
+                    },
+                  },
+                },
+              },
+              albums: {
+                "alb-1": {
+                  id: "alb-1",
+                  type: "albums",
+                  attributes: {
+                    name: "Shuwarin☆Dreaming - EP",
+                    artistName: "Pastel*Palettes",
+                    artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/{w}x{h}bb.jpg" },
+                  },
+                },
+                "alb-cat-99": {
+                  id: "alb-cat-99",
+                  type: "albums",
+                  attributes: {
+                    name: "No one - EP",
+                    artistName: "TOGENASHI TOGEARI",
+                    artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/{w}x{h}bb.jpg" },
+                  },
+                },
+                "alb-yoru": {
+                  id: "alb-yoru",
+                  type: "albums",
+                  attributes: {
+                    name: "花と水飴、最終電車",
+                    artistName: "n-buna",
+                  },
+                },
+              },
+              "library-albums": {
+                "l.alb99": {
+                  id: "l.alb99",
+                  type: "library-albums",
+                  meta: { catalogIds: ["alb-cat-99"] },
+                },
+              },
+              artists: {
+                "art-yorushika": {
+                  id: "art-yorushika",
+                  type: "artists",
+                  attributes: { name: "Yorushika" },
+                },
+              },
+              playlists: {
+                "pl.favmix": {
+                  id: "pl.favmix",
+                  type: "playlists",
+                  attributes: { name: "Favorites Mix", curatorName: "Apple Music for ZichenWu" },
+                },
+              },
+              "apple-curators": {
+                "1555167098": {
+                  id: "1555167098",
+                  type: "apple-curators",
+                  attributes: {
+                    name: "Apple Music Weekend",
+                    artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/weekend/{w}x{h}bb.jpg" },
+                  },
+                },
+              },
+              stations: {
+                "ra.personal1": {
+                  id: "ra.personal1",
+                  type: "stations",
+                  attributes: {
+                    name: "ZichenWu's Station",
+                    isLive: false,
+                    artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/st/{w}x{h}bb.jpg" },
+                  },
+                },
+                "ra.live1": {
+                  id: "ra.live1",
+                  type: "stations",
+                  attributes: {
+                    name: "Apple Music 1",
+                    isLive: true,
+                  },
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("/catalog/jp/apple-curators/1555167098")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "1555167098",
+                type: "apple-curators",
+                attributes: { name: "Apple Music Weekend" },
+                relationships: {
+                  playlists: {
+                    data: [
+                      {
+                        id: "pl.weekend1",
+                        type: "playlists",
+                        attributes: { name: "Weekend Chill", curatorName: "Apple Music" },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("/me/stations/next-tracks/ra.personal1")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "1679432100",
+                type: "songs",
+                attributes: {
+                  name: "Algernon",
+                  artistName: "Yorushika",
+                  albumName: "Magic Lantern",
+                  durationInMillis: 254000,
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("/editorial/jp/groupings?name=music")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "1000", type: "groupings" }],
+            resources: {
+              groupings: {
+                "1000": {
+                  id: "1000",
+                  type: "groupings",
+                  attributes: { name: "Music" },
+                  relationships: {
+                    tabs: { data: [{ id: "default", type: "editorial-elements" }] },
+                  },
+                },
+              },
+              "editorial-elements": {
+                default: {
+                  id: "default",
+                  type: "editorial-elements",
+                  relationships: {
+                    children: { data: [{ id: "shelf-new", type: "editorial-elements" }] },
+                  },
+                },
+                "shelf-new": {
+                  id: "shelf-new",
+                  type: "editorial-elements",
+                  attributes: { title: "New This Week", editorialElementKind: 326 },
+                  relationships: {
+                    contents: { data: [{ id: "alb-new-1", type: "albums" }] },
+                  },
+                },
+              },
+              albums: {
+                "alb-new-1": {
+                  id: "alb-new-1",
+                  type: "albums",
+                  attributes: { name: "Magic Lantern", artistName: "Yorushika" },
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const homeRes = await plugin.home();
+    assertEquals(homeRes.sections.length, 5);
+    assertEquals(homeRes.sections[0].title, "Anime");
+    assertEquals(homeRes.sections[0].morePage, "reco:rec-anime");
+    assertEquals(homeRes.sections[0].albums.length, 2);
+    assertEquals(homeRes.sections[0].albums[1].id, "alb-cat-99");
+
+    assertEquals(homeRes.sections[1].title, "Fans Like Yorushika");
+    assertEquals(homeRes.sections[2].title, "Made for You");
+    assertEquals(homeRes.sections[2].playlists[0].name, "Favorites Mix");
+
+    assertEquals(homeRes.sections[3].title, "Find Your Mood");
+    assertEquals(homeRes.sections[3].links[0].page, "apple-curator:1555167098");
+
+    assertEquals(homeRes.sections[4].title, "Stations for You");
+    assertEquals(homeRes.sections[4].stations.length, 1, "should exclude live broadcast stations");
+    assertEquals(homeRes.sections[4].stations[0].id, "ra.personal1");
+
+    // Verify See All ("reco:rec-anime")
+    const seeAll = await plugin.browse({ page: "reco:rec-anime" });
+    assertEquals(seeAll.title, "Anime");
+    assertEquals(seeAll.sections[0].albums.length, 2);
+
+    // Verify Find Your Mood curator drill-down ("apple-curator:1555167098")
+    const moodBrowse = await plugin.browse({ page: "apple-curator:1555167098" });
+    assertEquals(moodBrowse.title, "Apple Music Weekend");
+    assertEquals(moodBrowse.sections[0].playlists[0].name, "Weekend Chill");
+
+    // Verify New tab ("new")
+    const newBrowse = await plugin.browse({ page: "new" });
+    assertEquals(newBrowse.title, "New");
+    assertEquals(newBrowse.sections[0].title, "New This Week");
+
+    // Verify personal station playback feed
+    const radioTracks = await plugin.stationNext({ id: "ra.personal1" });
+    assertEquals(radioTracks.length, 1);
+    assertEquals(radioTracks[0].name, "Algernon");
+  });
 });

@@ -1045,9 +1045,350 @@ async function suggest(options) {
   const json = await requestApi(url);
   return json.results?.terms || [];
 }
-async function home() {
-  const sf = await getStorefront();
-  const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+function getLocalTimezoneOffset(date = /* @__PURE__ */ new Date()) {
+  const offset = date.getTimezoneOffset();
+  const abs = Math.abs(offset);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  const sign = offset > 0 ? "-" : "+";
+  return `${sign}${hh}:${mm}`;
+}
+function extractBestArtworkUrl(item, size = 600) {
+  const attr = item?.attributes || {};
+  if (attr.artwork?.url) {
+    return formatArtworkUrl(attr.artwork.url, size);
+  }
+  const edArt = attr.editorialArtwork || {};
+  for (const key of [
+    "subscriptionHero",
+    "superHeroWide",
+    "superHeroTall",
+    "storeFlowcase",
+    "brandLogo"
+  ]) {
+    if (edArt[key]?.url) {
+      return formatArtworkUrl(edArt[key].url, size);
+    }
+  }
+  const cards = attr.plainEditorialCard;
+  if (cards && typeof cards === "object") {
+    const preferredKey = item?.meta?.editorialCard;
+    const keys = preferredKey ? [preferredKey, ...Object.keys(cards)] : Object.keys(cards);
+    for (const k of keys) {
+      const cardArt = cards[k]?.editorialArtwork;
+      if (cardArt?.superHeroTall?.url) {
+        return formatArtworkUrl(cardArt.superHeroTall.url, size);
+      }
+      if (cardArt?.superHeroWide?.url) {
+        return formatArtworkUrl(cardArt.superHeroWide.url, size);
+      }
+    }
+  }
+  return void 0;
+}
+function resolveResourceRef(ref, resourcesMap) {
+  if (!ref) return null;
+  if (resourcesMap && ref.type && ref.id != null) {
+    const found = resourcesMap[ref.type]?.[String(ref.id)];
+    if (found) {
+      return ref.meta ? { ...found, meta: { ...found.meta || {}, ...ref.meta } } : found;
+    }
+  }
+  return ref;
+}
+function parseEditorialLinkToPage(urlStr) {
+  if (!urlStr || typeof urlStr !== "string") return null;
+  const fcMatch = urlStr.match(/[?&]fcId=(\d+)/i) || urlStr.match(/\/room\/[^/?#]+\/(\d+)/i);
+  if (fcMatch?.[1]) return `room:${fcMatch[1]}`;
+  const grpMatch = urlStr.match(/viewGrouping\?[^#]*\bid=(\d+)/i) || urlStr.match(/\/grouping\/(?:[^/?#]+\/)?(?:id)?(\d+)/i);
+  if (grpMatch?.[1]) return `grouping:${grpMatch[1]}`;
+  const curMatch = urlStr.match(/\/curator\/[^/?#]+\/(\d+)/i);
+  if (curMatch?.[1]) return `apple-curator:${curMatch[1]}`;
+  return null;
+}
+function createSectionBuckets() {
+  return {
+    tracks: [],
+    albums: [],
+    artists: [],
+    playlists: [],
+    stations: [],
+    links: [],
+    seen: /* @__PURE__ */ new Set()
+  };
+}
+function collectResourceIntoBuckets(rawRef, buckets, resourcesMap, depth = 0) {
+  if (!rawRef || depth > 3) return;
+  const item = resolveResourceRef(rawRef, resourcesMap);
+  if (!item) return;
+  const type = String(item.type || rawRef.type || "");
+  const id = String(item.id ?? rawRef.id ?? "");
+  if (type === "personal-recommendation") {
+    const children = item.relationships?.contents?.data || [];
+    for (const child of children) {
+      collectResourceIntoBuckets(child, buckets, resourcesMap, depth + 1);
+    }
+    return;
+  }
+  if (type === "editorial-elements") {
+    const contents = item.relationships?.contents?.data || [];
+    if (contents.length > 0) {
+      for (const child of contents) {
+        collectResourceIntoBuckets(child, buckets, resourcesMap, depth + 1);
+      }
+      return;
+    }
+    const attr = item.attributes || {};
+    const linkPage = parseEditorialLinkToPage(attr.link?.url || attr.url);
+    const title = attr.title || attr.name || attr.link?.label;
+    if (linkPage && title && !buckets.seen.has(`link:${linkPage}`)) {
+      buckets.seen.add(`link:${linkPage}`);
+      buckets.links.push({
+        title: String(title),
+        subtitle: attr.subtitle || attr.designBadge || void 0,
+        imageUrl: extractBestArtworkUrl(item, 600),
+        page: linkPage
+      });
+    }
+    return;
+  }
+  if (!id) return;
+  const dedupeKey = `${type}:${id}`;
+  if (buckets.seen.has(dedupeKey)) return;
+  if (type === "albums") {
+    if (!item.attributes?.name) return;
+    buckets.seen.add(dedupeKey);
+    const alb = mapAlbum(item);
+    if (!alb.imageUrl) alb.imageUrl = extractBestArtworkUrl(item, 600);
+    buckets.albums.push(alb);
+    return;
+  }
+  if (type === "library-albums") {
+    const catalogId = item.meta?.catalogIds?.[0] || item.attributes?.playParams?.catalogId || item.relationships?.catalog?.data?.[0]?.id;
+    const catAlbum = catalogId && resourcesMap?.["albums"]?.[String(catalogId)] ? resourcesMap["albums"][String(catalogId)] : null;
+    if (catAlbum?.attributes?.name) {
+      const catKey = `albums:${catAlbum.id}`;
+      if (buckets.seen.has(catKey)) return;
+      buckets.seen.add(catKey);
+      buckets.albums.push(mapAlbum(catAlbum));
+      return;
+    }
+    if (!item.attributes?.name) return;
+    buckets.seen.add(dedupeKey);
+    const alb = mapAlbum(item);
+    if (!alb.imageUrl && catAlbum) {
+      alb.imageUrl = extractBestArtworkUrl(catAlbum, 600);
+    }
+    buckets.albums.push(alb);
+    return;
+  }
+  if (type === "playlists") {
+    if (!item.attributes?.name) return;
+    buckets.seen.add(dedupeKey);
+    const pl = mapPlaylist(item);
+    if (!pl.imageUrl) pl.imageUrl = extractBestArtworkUrl(item, 600);
+    buckets.playlists.push(pl);
+    return;
+  }
+  if (type === "library-playlists") {
+    const catalogId = item.meta?.catalogIds?.[0] || item.attributes?.playParams?.catalogId || item.relationships?.catalog?.data?.[0]?.id;
+    const catPl = catalogId && resourcesMap?.["playlists"]?.[String(catalogId)] ? resourcesMap["playlists"][String(catalogId)] : null;
+    if (!item.attributes?.name && catPl?.attributes?.name) {
+      const catKey = `playlists:${catPl.id}`;
+      if (buckets.seen.has(catKey)) return;
+      buckets.seen.add(catKey);
+      buckets.playlists.push(mapPlaylist(catPl));
+      return;
+    }
+    if (!item.attributes?.name) return;
+    buckets.seen.add(dedupeKey);
+    const pl = mapPlaylist(item);
+    if (!pl.imageUrl && catPl) {
+      pl.imageUrl = extractBestArtworkUrl(catPl, 600);
+    }
+    if (!pl.owner && catPl?.attributes?.curatorName) {
+      pl.owner = catPl.attributes.curatorName;
+    }
+    buckets.playlists.push(pl);
+    return;
+  }
+  if (type === "artists") {
+    if (!item.attributes?.name) return;
+    buckets.seen.add(dedupeKey);
+    const art = mapArtist(item);
+    if (!art.imageUrl) art.imageUrl = extractBestArtworkUrl(item, 600);
+    buckets.artists.push(art);
+    return;
+  }
+  if (type === "songs" || type === "library-songs") {
+    if (!item.attributes?.name) return;
+    buckets.seen.add(dedupeKey);
+    buckets.tracks.push(mapTrack(item));
+    return;
+  }
+  if (type === "stations") {
+    const attr = item.attributes || {};
+    if (!attr.name || attr.isLive === true) return;
+    buckets.seen.add(dedupeKey);
+    buckets.stations.push({
+      id,
+      name: String(attr.name),
+      description: attr.editorialNotes?.short || attr.plainEditorialNotes?.short || attr.editorialNotes?.tagline || void 0,
+      imageUrl: extractBestArtworkUrl(item, 600)
+    });
+    return;
+  }
+  if (type === "apple-curators" || type === "curators") {
+    const attr = item.attributes || {};
+    const name = attr.name || attr.plainEditorialNotes?.name;
+    if (!name) return;
+    const pageTarget = type === "apple-curators" ? `apple-curator:${id}` : `curator:${id}`;
+    if (buckets.seen.has(`link:${pageTarget}`)) return;
+    buckets.seen.add(`link:${pageTarget}`);
+    buckets.links.push({
+      title: String(name),
+      subtitle: attr.plainEditorialNotes?.short || attr.editorialNotes?.short || void 0,
+      imageUrl: extractBestArtworkUrl(item, 600),
+      page: pageTarget
+    });
+    return;
+  }
+  if (type === "editorial-items" || type === "activities") {
+    const attr = item.attributes || {};
+    const name = attr.name || attr.plainEditorialNotes?.name || attr.plainEditorialNotes?.badge || attr.editorialNotes?.name;
+    const linkPage = parseEditorialLinkToPage(attr.url || attr.link?.url);
+    if (name && linkPage && !buckets.seen.has(`link:${linkPage}`)) {
+      buckets.seen.add(`link:${linkPage}`);
+      buckets.links.push({
+        title: String(name),
+        subtitle: attr.plainEditorialNotes?.short || attr.editorialNotes?.short || void 0,
+        imageUrl: extractBestArtworkUrl(item, 600),
+        page: linkPage
+      });
+    }
+  }
+}
+function bucketsToSection(title, buckets, morePage, subtitle) {
+  const total = buckets.tracks.length + buckets.albums.length + buckets.artists.length + buckets.playlists.length + buckets.stations.length + buckets.links.length;
+  if (total === 0) return null;
+  const sec = { title };
+  if (subtitle) sec.subtitle = subtitle;
+  if (morePage) sec.morePage = morePage;
+  if (buckets.tracks.length > 0) {
+    sec.tracks = buckets.tracks;
+    if (total === buckets.tracks.length) {
+      sec.kind = "tracks";
+      sec.items = buckets.tracks;
+    }
+  }
+  if (buckets.albums.length > 0) {
+    sec.albums = buckets.albums;
+    if (total === buckets.albums.length) {
+      sec.kind = "albums";
+      sec.items = buckets.albums;
+    }
+  }
+  if (buckets.artists.length > 0) {
+    sec.artists = buckets.artists;
+    if (total === buckets.artists.length) {
+      sec.kind = "artists";
+      sec.items = buckets.artists;
+    }
+  }
+  if (buckets.playlists.length > 0) {
+    sec.playlists = buckets.playlists;
+    if (total === buckets.playlists.length) {
+      sec.kind = "playlists";
+      sec.items = buckets.playlists;
+    }
+  }
+  if (buckets.stations.length > 0) {
+    sec.stations = buckets.stations;
+  }
+  if (buckets.links.length > 0) {
+    sec.links = buckets.links;
+  }
+  return sec;
+}
+function resolveRecommendationTitle(rec, resourcesMap) {
+  const attr = rec?.attributes || {};
+  const directTitle = typeof attr.title === "string" ? attr.title.trim() : String(attr.title?.stringForDisplay || "").trim();
+  const reasonText = String(attr.reason?.stringForDisplay || "").trim();
+  if (directTitle) {
+    return { title: directTitle, subtitle: reasonText || void 0 };
+  }
+  const prefix = String(attr.titleWithoutName?.stringForDisplay || "").trim();
+  const primaryRef = rec?.relationships?.["primary-content"]?.data?.[0];
+  const primaryRes = resolveResourceRef(primaryRef, resourcesMap);
+  const primaryName = String(primaryRes?.attributes?.name || "").trim();
+  if (prefix && primaryName) {
+    return { title: `${prefix} ${primaryName}`, subtitle: reasonText || void 0 };
+  }
+  if (primaryName) {
+    return { title: primaryName, subtitle: reasonText || void 0 };
+  }
+  if (reasonText) {
+    return { title: reasonText };
+  }
+  return { title: tr("Recommended For You") };
+}
+function parseRecommendationsToSections(json, allowMorePage = true) {
+  const dataRefs = Array.isArray(json?.data) ? json.data : [];
+  const resourcesMap = json?.resources;
+  const sections = [];
+  for (const rawRef of dataRefs) {
+    const rec = resolveResourceRef(rawRef, resourcesMap);
+    if (!rec) continue;
+    const recType = String(rec.type || rawRef.type || "");
+    if (recType !== "personal-recommendation") continue;
+    const contents = rec.relationships?.contents?.data || [];
+    if (!Array.isArray(contents) || contents.length === 0) continue;
+    const buckets = createSectionBuckets();
+    for (const childRef of contents) {
+      collectResourceIntoBuckets(childRef, buckets, resourcesMap, 0);
+    }
+    const { title, subtitle } = resolveRecommendationTitle(rec, resourcesMap);
+    const morePage = allowMorePage && rec.id && rec.attributes?.hasSeeAll === true ? `reco:${rec.id}` : void 0;
+    const sec = bucketsToSection(title, buckets, morePage, subtitle);
+    if (sec) {
+      sections.push(sec);
+    }
+  }
+  return sections;
+}
+async function fetchPersonalizedHome(sf, lang) {
+  const tz = encodeURIComponent(getLocalTimezoneOffset());
+  const listenNowQuery = `/me/recommendations?name=listen-now&platform=web&format[resources]=map&with=library,social,friendsMix&types=activities,albums,apple-curators,artists,curators,editorial-items,library-albums,library-playlists,playlists,songs,stations&include[albums]=artists&include[library-playlists]=catalog&include[library-albums]=catalog&include[personal-recommendation]=contents,primary-content&extend=plainEditorialNotes,plainEditorialCard,editorialArtwork&extend[playlists]=artistNames&fields[artists]=name,artwork,url&omit[resource]=autos&displayFilter[kind]=MusicCardShelf,MusicCircleCoverShelf,MusicCoverGrid,MusicCoverShelf,MusicHorizontalLockupGrid,MusicNotesHeroShelf,MusicSuperHeroShelf&timezone=${tz}&l=${encodeURIComponent(lang)}`;
+  try {
+    const json = await requestApi(listenNowQuery, { requireAuth: true });
+    const sections = parseRecommendationsToSections(json, true);
+    if (sections.length > 0) {
+      return {
+        title: tr("Home"),
+        sections
+      };
+    }
+  } catch (err) {
+    if (err?.code === "signIn") throw err;
+  }
+  try {
+    const fallbackJson = await requestApi(
+      `/me/recommendations?limit=30&timezone=${tz}&l=${encodeURIComponent(lang)}`,
+      { requireAuth: true }
+    );
+    const sections = parseRecommendationsToSections(fallbackJson, true);
+    if (sections.length > 0) {
+      return {
+        title: tr("Home"),
+        sections
+      };
+    }
+  } catch (err) {
+    if (err?.code === "signIn") throw err;
+  }
+  return null;
+}
+async function buildChartsBrowse(sf, lang, pageTitle = tr("Charts")) {
   const url = `/catalog/${sf}/charts?types=songs,albums,playlists&limit=20&l=${lang}`;
   const json = await requestApi(url);
   const charts = json.results || {};
@@ -1083,9 +1424,181 @@ async function home() {
     });
   }
   return {
-    title: tr("Home"),
+    title: pageTitle,
     sections
   };
+}
+function parseEditorialGroupingBrowse(json, fallbackTitle) {
+  const resourcesMap = json?.resources;
+  const dataRefs = Array.isArray(json?.data) ? json.data : [];
+  const rootGrouping = resolveResourceRef(dataRefs[0], resourcesMap) || (resourcesMap?.groupings ? Object.values(resourcesMap.groupings)[0] : null);
+  const pageTitle = String(rootGrouping?.attributes?.name || fallbackTitle);
+  const sections = [];
+  const tabRefs = rootGrouping?.relationships?.tabs?.data || [];
+  const shelfRefs = [];
+  if (tabRefs.length > 0) {
+    for (const tabRef of tabRefs) {
+      const tabEl = resolveResourceRef(tabRef, resourcesMap);
+      const children = tabEl?.relationships?.children?.data || [];
+      shelfRefs.push(...children);
+    }
+  } else if (rootGrouping?.relationships?.children?.data) {
+    shelfRefs.push(...rootGrouping.relationships.children.data);
+  }
+  for (const shelfRef of shelfRefs) {
+    const shelfEl = resolveResourceRef(shelfRef, resourcesMap);
+    if (!shelfEl) continue;
+    const attr = shelfEl.attributes || {};
+    const kind = String(attr.editorialElementKind || "");
+    const buckets = createSectionBuckets();
+    if (Array.isArray(attr.links) && attr.links.length > 0) {
+      for (const lnk of attr.links) {
+        const linkPage = parseEditorialLinkToPage(lnk?.url);
+        if (linkPage && lnk?.label && !buckets.seen.has(`link:${linkPage}`)) {
+          buckets.seen.add(`link:${linkPage}`);
+          buckets.links.push({
+            title: String(lnk.label),
+            page: linkPage
+          });
+        }
+      }
+    }
+    const directContents = shelfEl.relationships?.contents?.data || [];
+    for (const cRef of directContents) {
+      collectResourceIntoBuckets(cRef, buckets, resourcesMap, 0);
+    }
+    const childElements = shelfEl.relationships?.children?.data || [];
+    for (const chRef of childElements) {
+      collectResourceIntoBuckets(chRef, buckets, resourcesMap, 0);
+    }
+    const roomRef = shelfEl.relationships?.room?.data?.[0];
+    const morePage = roomRef?.id ? `room:${roomRef.id}` : void 0;
+    const shelfTitle = attr.title || attr.name || (kind === "316" ? tr("Featured") : "");
+    if (!shelfTitle && buckets.links.length === 0 && buckets.albums.length === 0 && buckets.playlists.length === 0) {
+      continue;
+    }
+    const sec = bucketsToSection(shelfTitle || tr("Featured"), buckets, morePage);
+    if (sec) {
+      sections.push(sec);
+    }
+  }
+  return {
+    title: pageTitle,
+    sections
+  };
+}
+async function buildRecommendationSeeAllBrowse(recId, lang) {
+  const tz = encodeURIComponent(getLocalTimezoneOffset());
+  const seeAllUrl = `/me/recommendations/${encodeURIComponent(recId)}/view/see-all?action=refresh&name=listen-now&platform=web&format[resources]=map&include[personal-recommendation]=contents&include[library-playlists]=catalog&include[library-albums]=catalog&limit[contents]=100&omit[resource]=autos&with=library,social,friendsMix&types=artists,albums,apple-curators,curators,editorial-items,library-albums,library-playlists,playlists,songs,stations&timezone=${tz}&l=${encodeURIComponent(lang)}`;
+  let json = null;
+  try {
+    json = await requestApi(seeAllUrl, { requireAuth: true });
+  } catch (err) {
+    if (err?.code === "signIn") throw err;
+    json = await requestApi(
+      `/me/recommendations/${encodeURIComponent(recId)}?l=${encodeURIComponent(lang)}`,
+      { requireAuth: true }
+    );
+  }
+  const sections = parseRecommendationsToSections(json, false);
+  const title = sections[0]?.title || tr("Recommended For You");
+  if (sections.length === 1) {
+    sections[0] = { ...sections[0], title: "" };
+  }
+  return {
+    title,
+    sections
+  };
+}
+async function buildCuratorBrowse(sf, curatorId, isAppleCurator, lang) {
+  const resourcePath = isAppleCurator ? "apple-curators" : "curators";
+  const json = await requestApi(
+    `/catalog/${sf}/${resourcePath}/${encodeURIComponent(curatorId)}?include=playlists&l=${encodeURIComponent(lang)}`
+  );
+  const item = json?.data?.[0];
+  if (!item) {
+    throw fail("unavailable", tr("Playlist not found"));
+  }
+  const attr = item.attributes || {};
+  const title = String(attr.name || tr("Curator"));
+  const desc = attr.editorialNotes?.short || attr.editorialNotes?.standard || void 0;
+  const groupingId = item.relationships?.grouping?.data?.[0]?.id;
+  if (groupingId) {
+    try {
+      const grpJson = await requestApi(
+        `/editorial/${sf}/groupings/${encodeURIComponent(String(groupingId))}?platform=web&format[resources]=map&omit[resource:artists]=autos&l=${encodeURIComponent(lang)}`
+      );
+      const grpBrowse = parseEditorialGroupingBrowse(grpJson, title);
+      if (grpBrowse.sections && grpBrowse.sections.length > 0) {
+        return {
+          title,
+          description: desc,
+          sections: grpBrowse.sections
+        };
+      }
+    } catch {
+    }
+  }
+  const playlistItems = item.relationships?.playlists?.data || [];
+  const mappedPlaylists = playlistItems.map(mapPlaylist);
+  return {
+    title,
+    description: desc,
+    sections: mappedPlaylists.length > 0 ? [
+      {
+        title: tr("Playlists"),
+        kind: "playlists",
+        playlists: mappedPlaylists,
+        items: mappedPlaylists
+      }
+    ] : []
+  };
+}
+async function buildRoomBrowse(sf, roomId, lang) {
+  const json = await requestApi(
+    `/editorial/${sf}/rooms/${encodeURIComponent(roomId)}?platform=web&format[resources]=map&omit[resource:artists]=autos&l=${encodeURIComponent(lang)}`
+  );
+  const resourcesMap = json?.resources;
+  const dataRefs = Array.isArray(json?.data) ? json.data : [];
+  const room = resolveResourceRef(dataRefs[0], resourcesMap) || (resourcesMap?.rooms ? Object.values(resourcesMap.rooms)[0] : null);
+  if (!room) {
+    throw fail("unavailable", `Room not found: ${roomId}`);
+  }
+  const attr = room.attributes || {};
+  const title = String(attr.title || attr.name || tr("Browse"));
+  const desc = attr.editorialNotes?.short || attr.plainEditorialNotes?.short || void 0;
+  const buckets = createSectionBuckets();
+  const contents = room.relationships?.contents?.data || [];
+  if (contents.length > 0) {
+    for (const ref of contents) {
+      collectResourceIntoBuckets(ref, buckets, resourcesMap, 0);
+    }
+  } else if (resourcesMap) {
+    for (const [rType, group] of Object.entries(resourcesMap)) {
+      if (rType === "rooms") continue;
+      for (const obj of Object.values(group || {})) {
+        collectResourceIntoBuckets(obj, buckets, resourcesMap, 0);
+      }
+    }
+  }
+  const sec = bucketsToSection("", buckets);
+  return {
+    title,
+    description: desc,
+    sections: sec ? [sec] : []
+  };
+}
+async function home() {
+  const sf = await getStorefront();
+  const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  const token = await getStoredMediaUserToken();
+  if (token) {
+    const personalized = await fetchPersonalizedHome(sf, lang);
+    if (personalized && personalized.sections && personalized.sections.length > 0) {
+      return personalized;
+    }
+  }
+  return buildChartsBrowse(sf, lang, tr("Home"));
 }
 async function buildMyPageBrowse(sf, lang) {
   const token = await getStoredMediaUserToken();
@@ -1164,8 +1677,25 @@ async function browse(options) {
   const page = options?.page || options?.id || "charts";
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  if (page === "charts" || page === "browse" || page === "home") {
+  if (page === "home") {
     return home();
+  }
+  if (page === "charts" || page === "browse") {
+    return buildChartsBrowse(sf, lang, tr("Charts"));
+  }
+  if (page === "new") {
+    try {
+      const edJson = await requestApi(
+        `/editorial/${sf}/groupings?name=music&platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(lang)}`
+      );
+      const parsed = parseEditorialGroupingBrowse(edJson, tr("New"));
+      if (parsed.sections && parsed.sections.length > 0) {
+        return { ...parsed, title: tr("New") };
+      }
+    } catch (err) {
+      if (err?.code === "signIn") throw err;
+    }
+    return buildChartsBrowse(sf, lang, tr("New"));
   }
   if (page === "library" || page === "profile") {
     return buildMyPageBrowse(sf, lang);
@@ -1183,6 +1713,34 @@ async function browse(options) {
         }
       ]
     };
+  }
+  if (page.startsWith("reco:")) {
+    const recId = page.slice(5).trim();
+    if (!recId) throw fail("unavailable", "Recommendation id required");
+    return buildRecommendationSeeAllBrowse(recId, lang);
+  }
+  if (page.startsWith("apple-curator:")) {
+    const curId = page.slice(14).trim();
+    if (!curId) throw fail("unavailable", "Curator id required");
+    return buildCuratorBrowse(sf, curId, true, lang);
+  }
+  if (page.startsWith("curator:")) {
+    const curId = page.slice(8).trim();
+    if (!curId) throw fail("unavailable", "Curator id required");
+    return buildCuratorBrowse(sf, curId, false, lang);
+  }
+  if (page.startsWith("grouping:")) {
+    const grpId = page.slice(9).trim();
+    if (!grpId) throw fail("unavailable", "Grouping id required");
+    const grpJson = await requestApi(
+      `/editorial/${sf}/groupings/${encodeURIComponent(grpId)}?platform=web&format[resources]=map&omit[resource:artists]=autos&l=${encodeURIComponent(lang)}`
+    );
+    return parseEditorialGroupingBrowse(grpJson, tr("Browse"));
+  }
+  if (page.startsWith("room:")) {
+    const roomId = page.slice(5).trim();
+    if (!roomId) throw fail("unavailable", "Room id required");
+    return buildRoomBrowse(sf, roomId, lang);
   }
   if (page === "charts-songs") {
     const json = await requestApi(`/catalog/${sf}/charts?types=songs&limit=50&l=${lang}`);
@@ -1680,6 +2238,44 @@ async function recent() {
     }
   }
   return [];
+}
+async function stations() {
+  const token = await getStoredMediaUserToken();
+  if (!token) return [];
+  const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  try {
+    const json = await requestApi(
+      `/me/recent/radio-stations?limit=20&l=${encodeURIComponent(lang)}`,
+      { requireAuth: true }
+    );
+    const items = Array.isArray(json?.data) ? json.data : [];
+    return items.filter((st) => st?.id && st?.attributes?.name && st?.attributes?.isLive !== true).map((st) => ({
+      id: String(st.id),
+      name: String(st.attributes.name),
+      description: st.attributes.editorialNotes?.short || st.attributes.plainEditorialNotes?.short || void 0,
+      imageUrl: extractBestArtworkUrl(st, 600)
+    }));
+  } catch (err) {
+    if (err?.code === "signIn") throw err;
+    return [];
+  }
+}
+async function stationNext(options) {
+  const id = String(options?.id || "").trim();
+  if (!id) throw fail("unavailable", "Station id required");
+  const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  const json = await requestApi(
+    `/me/stations/next-tracks/${encodeURIComponent(id)}?limit=10&l=${encodeURIComponent(lang)}`,
+    {
+      method: "POST",
+      requireAuth: true
+    }
+  );
+  const items = Array.isArray(json?.data) ? json.data : [];
+  if (items.length === 0) {
+    throw fail("unavailable", tr("This track is unavailable for streaming"));
+  }
+  return items.map(mapTrack);
 }
 async function lyrics(options) {
   const id = String(options?.id || "").trim();
@@ -2266,6 +2862,8 @@ export {
   setSetting,
   signIn,
   signOut,
+  stationNext,
+  stations,
   stream,
   suggest,
   toMusicAppUrl
