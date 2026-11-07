@@ -1546,4 +1546,76 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assertEquals(madeSec.playlists.length, 3);
     assertEquals(madeSec.playlists[0].id, "pl.newmusic");
   });
+
+  test("5.4.15: stations() returns flagship live radio stations and episodes, excluding algorithmic song stations", async () => {
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/catalog/jp/stations")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ra.978194965",
+                attributes: {
+                  name: "Apple Music 1",
+                  editorialNotes: { short: "Live Station" },
+                  artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/35d45158/{w}x{h}sr.jpg" },
+                },
+              },
+              {
+                id: "ra.1498155548",
+                attributes: {
+                  name: "Apple Music Hits",
+                  editorialNotes: { short: "Songs you know and love." },
+                  artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/51c24bce/{w}x{h}sr.jpg" },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const stList = await plugin.stations();
+    assert(stList.length >= 2, "must include live stations");
+    const stHits = stList.find((s) => s.id === "ra.1498155548");
+    assertTruthy(stHits);
+    assertEquals(stHits.name, "Apple Music Hits");
+    assertIncludes(stHits.imageUrl, "51c24bce");
+    // Ensure algorithmic song stations are NOT included in radio
+    assert(!stList.some((s) => s.name?.includes("feel my soul Station")), "must exclude algorithmic song stations");
+  });
+
+  test("5.4.16: remotePlay on live radio station ('ra.1498155548') resolves station metadata and opens station location", async () => {
+    host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/catalog/jp/stations/ra.1498155548")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "ra.1498155548",
+                attributes: {
+                  name: "Apple Music Hits",
+                  url: "https://music.apple.com/jp/station/apple-music-hits/ra.1498155548",
+                  artwork: { url: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/51c24bce/{w}x{h}sr.jpg" },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    await plugin.remotePlay({ ids: ["ra.1498155548"], start: 0, position: 0 });
+    const spawns = host._getSpawnHistory();
+    const lastSpawn = spawns[spawns.length - 1];
+    assertIncludes(lastSpawn.stdin, "station/apple-music-hits/ra.1498155548");
+  });
 });

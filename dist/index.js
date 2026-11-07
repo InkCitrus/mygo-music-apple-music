@@ -37,7 +37,7 @@ function toMusicAppUrl(rawUrl, sf, songId, albumId) {
   const cleanSf = (sf || "us").trim().toLowerCase();
   if (rawUrl && typeof rawUrl === "string") {
     const trimmed = rawUrl.trim();
-    if (trimmed.startsWith("music://") || trimmed.startsWith("musics://") || trimmed.startsWith("itmss://")) {
+    if (trimmed.startsWith("music://") || trimmed.startsWith("musics://") || trimmed.startsWith("itmss://") || trimmed.startsWith("itsradio://")) {
       return trimmed;
     }
     if (trimmed.startsWith("https://music.apple.com/") || trimmed.startsWith("http://music.apple.com/")) {
@@ -45,6 +45,9 @@ function toMusicAppUrl(rawUrl, sf, songId, albumId) {
     }
   }
   if (!cleanId) return "";
+  if (cleanId.startsWith("ra.")) {
+    return `music://music.apple.com/${cleanSf}/station/_/${encodeURIComponent(cleanId)}`;
+  }
   if (albumId && /^\d+$/.test(albumId)) {
     return `music://music.apple.com/${cleanSf}/album/_/${albumId}?i=${encodeURIComponent(cleanId)}`;
   }
@@ -126,7 +129,7 @@ tell application "Music"
     try
       stop
     end try
-    if playStoreURL is not "" then
+    if playStoreURL is not "" and targetURL does not contain "/album/" and targetURL does not contain "/station/" then
       open location playStoreURL
     else
       open location targetURL
@@ -645,9 +648,10 @@ async function executeRemoteState() {
     if (reportedName && activeSession.initialReportedName === void 0 && (!settled || posMs < 15e3)) {
       activeSession.initialReportedName = reportedName;
     }
+    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
     const matchesRequested = Boolean(activeSession.name) && reportedName.toLowerCase() === activeSession.name.toLowerCase();
     const matchesInitial = Boolean(activeSession.initialReportedName) && reportedName.toLowerCase() === activeSession.initialReportedName.toLowerCase();
-    if (settled && reportedName && !matchesRequested && !matchesInitial && activeSession.maxPositionMs > 5e3) {
+    if (!isRadio && settled && reportedName && !matchesRequested && !matchesInitial && activeSession.maxPositionMs > 5e3) {
       try {
         await runAppleScript(buildPauseScript());
       } catch {
@@ -655,7 +659,7 @@ async function executeRemoteState() {
       activeSession = null;
       return null;
     }
-    if (settled && durationMs > 1e4 && activeSession.maxPositionMs >= durationMs - 4e3 && posMs < 3e3) {
+    if (!isRadio && settled && durationMs > 1e4 && activeSession.maxPositionMs >= durationMs - 4e3 && posMs < 3e3) {
       try {
         await runAppleScript(buildPauseScript());
       } catch {
@@ -1169,6 +1173,35 @@ async function resolveTrackMeta(id) {
   }
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  if (cleanId.startsWith("ra.") || APPLE_MUSIC_LIVE_STATIONS.some((s) => s.id === cleanId)) {
+    const liveMatch = APPLE_MUSIC_LIVE_STATIONS.find((s) => s.id === cleanId);
+    let name = liveMatch?.name || "Apple Music Radio";
+    let artistName = "Apple Music Radio";
+    let imageUrl = liveMatch?.imageUrl;
+    let stationUrl = `https://music.apple.com/${sf}/station/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}/${encodeURIComponent(cleanId)}`;
+    try {
+      const stJson = await requestApi(`/catalog/${sf}/stations/${encodeURIComponent(cleanId)}?l=${lang}`);
+      const st = stJson?.data?.[0];
+      if (st?.attributes) {
+        if (st.attributes.name) name = st.attributes.name;
+        if (st.attributes.url) stationUrl = st.attributes.url;
+        if (st.attributes.artwork?.url) {
+          imageUrl = formatArtworkUrl(st.attributes.artwork.url, 600, 600);
+        }
+      }
+    } catch {
+    }
+    const meta = {
+      id: cleanId,
+      name,
+      artistName,
+      durationMs: 0,
+      url: stationUrl,
+      imageUrl
+    };
+    trackMetaCache.set(cleanId, meta);
+    return meta;
+  }
   if (cleanId.startsWith("i.")) {
     const json2 = await requestApi(`/me/library/songs/${encodeURIComponent(cleanId)}?l=${lang}`, {
       requireAuth: true
@@ -2097,31 +2130,31 @@ var APPLE_MUSIC_LIVE_STATIONS = [
     id: "ra.1498155548",
     name: "Apple Music Hits",
     description: "The songs you know and love from the '80s, '90s, and 2000s.",
-    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/e5/a0/0d/e5a00d47-69b4-a50b-3652-32b00512803b/388fbf1e-627c-4731-90a6-c95691456a7d.png/600x600sr.jpg"
+    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/40/0f/72/400f7213-1311-a1d6-dd9d-f88d10b0c80f/51c24bce-b22a-4fea-aa1e-68e3d2b1163e.png/600x600sr.jpg"
   },
   {
     id: "ra.1498157166",
     name: "Apple Music Country",
     description: "Where country music lives.",
-    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/9d/1c/37/9d1c3769-6f7a-ac49-93e5-ca030ef7a8b4/f5383508-ea24-4f51-b0fe-25ba47e9b05c.png/600x600sr.jpg"
+    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/0e/eb/97/0eeb9759-323e-2aae-86e9-163feabb65c2/66506341-7a2f-4856-b736-644f62be6db1.png/600x600sr.jpg"
   },
   {
     id: "ra.1740613864",
-    name: "Apple Music Club",
-    description: "The biggest dance and electronic tracks worldwide.",
-    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/94/7d/d9/947dd957-8eaa-330b-fc68-07758369b775/88636ba4-0466-4e5a-8b1b-60aebc87040e.png/600x600sr.jpg"
+    name: "Apple M\xFAsica Uno",
+    description: "Lo mejor de los ritmos latinos.",
+    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/b0/dc/ef/b0dcefce-8977-2d47-282e-d79f045faf86/0f602447-188e-4d25-adcd-bd0446a11fae.png/600x600sr.jpg"
   },
   {
     id: "ra.1740614260",
     name: "Apple Music Chill",
     description: "Laid-back beats, acoustic vibes, and ambient sounds.",
-    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/b6/ec/73/b6ec73bd-efae-42d8-bf12-aa59c258d4a7/17b4a2e5-e45f-4bf2-a3c3-37651a24d5ba.png/600x600sr.jpg"
+    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/0f/84/79/0f84796e-235a-eaec-f05a-97dee282de94/660c1ef8-7f4e-4f8f-8577-3dbdfeac0231.png/600x600sr.jpg"
   },
   {
     id: "ra.1740613859",
-    name: "Apple Music M\xFAsica Uno",
-    description: "Lo mejor de los ritmos latinos.",
-    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/70/a9/6b/70a96bf1-965e-466d-a7b1-21d1d860d5bf/66b04870-83f0-4fc7-bf99-eebdd94ec32d.png/600x600sr.jpg"
+    name: "Apple Music Club",
+    description: "The biggest dance and electronic tracks worldwide.",
+    imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/17/34/71/1734717d-a753-062a-237c-65308b49135e/ba52d55d-5e41-4cce-bdc5-07ea61dc6c9b.png/600x600sr.jpg"
   }
 ];
 async function buildAppleBrowse(sf, lang, pageTitle = tr("Browse")) {
@@ -2840,7 +2873,6 @@ async function recent() {
   return [];
 }
 async function stations() {
-  const token = await getStoredMediaUserToken();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   const sf = await getStorefront().catch(() => "jp");
   const result = [];
@@ -2850,8 +2882,33 @@ async function stations() {
     seenIds.add(st.id);
     result.push(st);
   };
-  for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
-    add(liveSt);
+  const liveStationIds = APPLE_MUSIC_LIVE_STATIONS.map((s) => s.id).join(",");
+  try {
+    const liveApiRes = await requestApi(
+      `/catalog/${sf}/stations?ids=${encodeURIComponent(liveStationIds)}&l=${encodeURIComponent(lang)}`
+    );
+    const liveItems = Array.isArray(liveApiRes?.data) ? liveApiRes.data : [];
+    if (liveItems.length > 0) {
+      for (const it of liveItems) {
+        const id = it.id;
+        const attr = it.attributes || {};
+        const staticFallback = APPLE_MUSIC_LIVE_STATIONS.find((s) => s.id === id);
+        add({
+          id,
+          name: attr.name || staticFallback?.name || "Apple Music Radio",
+          description: attr.editorialNotes?.short || attr.editorialNotes?.tagline || attr.description?.short || staticFallback?.description,
+          imageUrl: attr.artwork?.url ? formatArtworkUrl(attr.artwork.url, 600, 600) : staticFallback?.imageUrl
+        });
+      }
+    } else {
+      for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
+        add(liveSt);
+      }
+    }
+  } catch {
+    for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
+      add(liveSt);
+    }
   }
   try {
     const radioUrl = `https://music.apple.com/${sf}/radio?l=${encodeURIComponent(lang)}`;
@@ -2886,25 +2943,6 @@ async function stations() {
     }
   } catch {
   }
-  if (token) {
-    try {
-      const json = await requestApi(
-        `/me/recent/radio-stations?limit=20&l=${encodeURIComponent(lang)}`,
-        { requireAuth: true }
-      );
-      const items = Array.isArray(json?.data) ? json.data : [];
-      for (const st of items) {
-        if (!st?.id || !st?.attributes?.name) continue;
-        add({
-          id: String(st.id),
-          name: String(st.attributes.name),
-          description: st.attributes.editorialNotes?.short || st.attributes.plainEditorialNotes?.short || void 0,
-          imageUrl: extractBestArtworkUrl(st, 600)
-        });
-      }
-    } catch {
-    }
-  }
   return result;
 }
 async function stationNext(options) {
@@ -2928,16 +2966,24 @@ async function stationNext(options) {
     const liveMatch = APPLE_MUSIC_LIVE_STATIONS.find((s) => s.id === id);
     const stationName = liveMatch?.name || "Apple Music Radio";
     const cleanSlug = stationName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    return [
-      {
-        id,
-        name: stationName,
-        artists: [{ id: "", name: "Apple Music Radio" }],
-        album: { id: "", name: "Live Broadcast", imageUrl: liveMatch?.imageUrl },
-        duration: 0,
-        url: `https://music.apple.com/${sf}/station/${cleanSlug}/${encodeURIComponent(id)}`
-      }
-    ];
+    const stationUrl = `https://music.apple.com/${sf}/station/${cleanSlug}/${encodeURIComponent(id)}`;
+    const fallbackTrack = {
+      id,
+      name: stationName,
+      artists: [{ id: "", name: "Apple Music Radio" }],
+      album: { id: "", name: "Live Broadcast", imageUrl: liveMatch?.imageUrl },
+      duration: 0,
+      url: stationUrl
+    };
+    trackMetaCache.set(id, {
+      id,
+      name: stationName,
+      artistName: "Apple Music Radio",
+      durationMs: 0,
+      url: stationUrl,
+      imageUrl: liveMatch?.imageUrl
+    });
+    return [fallbackTrack];
   }
   return items.map(mapTrack);
 }

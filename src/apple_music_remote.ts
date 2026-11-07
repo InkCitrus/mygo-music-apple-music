@@ -100,7 +100,12 @@ export function toMusicAppUrl(rawUrl: string | undefined, sf: string, songId: st
   const cleanSf = (sf || "us").trim().toLowerCase();
   if (rawUrl && typeof rawUrl === "string") {
     const trimmed = rawUrl.trim();
-    if (trimmed.startsWith("music://") || trimmed.startsWith("musics://") || trimmed.startsWith("itmss://")) {
+    if (
+      trimmed.startsWith("music://") ||
+      trimmed.startsWith("musics://") ||
+      trimmed.startsWith("itmss://") ||
+      trimmed.startsWith("itsradio://")
+    ) {
       return trimmed;
     }
     if (trimmed.startsWith("https://music.apple.com/") || trimmed.startsWith("http://music.apple.com/")) {
@@ -108,6 +113,9 @@ export function toMusicAppUrl(rawUrl: string | undefined, sf: string, songId: st
     }
   }
   if (!cleanId) return "";
+  if (cleanId.startsWith("ra.")) {
+    return `music://music.apple.com/${cleanSf}/station/_/${encodeURIComponent(cleanId)}`;
+  }
   if (albumId && /^\d+$/.test(albumId)) {
     return `music://music.apple.com/${cleanSf}/album/_/${albumId}?i=${encodeURIComponent(cleanId)}`;
   }
@@ -199,7 +207,7 @@ tell application "Music"
     try
       stop
     end try
-    if playStoreURL is not "" then
+    if playStoreURL is not "" and targetURL does not contain "/album/" and targetURL does not contain "/station/" then
       open location playStoreURL
     else
       open location targetURL
@@ -796,6 +804,8 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
       activeSession.initialReportedName = reportedName;
     }
 
+    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
+
     // Detect if Music.app finished our track and auto-advanced to a subsequent album/autoplay song:
     // Case 1: Reported track title changed after settling (when library metadata is readable)
     const matchesRequested =
@@ -806,6 +816,7 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
       reportedName.toLowerCase() === activeSession.initialReportedName!.toLowerCase();
 
     if (
+      !isRadio &&
       settled &&
       reportedName &&
       !matchesRequested &&
@@ -821,6 +832,7 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
 
     // Case 2: Catalog stream (-1728 hides reportedName) reached end zone and position wrapped back near 0
     if (
+      !isRadio &&
       settled &&
       durationMs > 10000 &&
       activeSession.maxPositionMs >= durationMs - 4000 &&
