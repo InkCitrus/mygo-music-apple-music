@@ -1621,7 +1621,8 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
 
   test("5.4.17: plugin.json contains crossfadeTip setting explaining why Music.app crossfade should be disabled", () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "plugin.json"), "utf8"));
-    assertEquals(manifest.version, "0.2.4");
+    const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+    assertEquals(manifest.version, pkg.version);
     const cfSetting = manifest.settings.find((s) => s.key === "crossfadeTip");
     assertTruthy(cfSetting, "manifest must contain crossfadeTip setting");
     assertIncludes(cfSetting.help, "歌曲渐变");

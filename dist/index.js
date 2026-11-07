@@ -138,24 +138,30 @@ tell application "Music"
     else
       open location targetURL
     end if
-    if isStation is true then
-      repeat with waitIdx from 1 to 30
-        delay 0.25
-        try
-          if player state is playing then exit repeat
-        end try
-      end repeat
-    else
-      repeat with waitIdx from 1 to 20
-        delay 0.25
-        try
-          if player state is playing then exit repeat
-          if waitIdx >= 8 and player state is paused then
-            play
-          end if
-        end try
-      end repeat
-    end if
+  end if
+
+  if isStation is true then
+    repeat with waitIdx from 1 to 35
+      delay 0.15
+      try
+        if player state is playing then
+          if waitIdx >= 8 then exit repeat
+        end if
+      end try
+    end repeat
+  else
+    repeat with waitIdx from 1 to 40
+      delay 0.1
+      try
+        if player state is playing then
+          set curPos to player position
+          if curPos > 0.04 or startPos > 0 then exit repeat
+        end if
+        if waitIdx >= 15 and player state is paused then
+          play
+        end if
+      end try
+    end repeat
   end if
 
   if startPos > 0 then
