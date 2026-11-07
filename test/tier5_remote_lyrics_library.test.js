@@ -442,3 +442,163 @@ describe("Tier 5.4: Subscriber Library Integration (playlists, liked, savedAlbum
     assertEquals(albumsPage.albums[0].name, "迷跡波");
   });
 });
+
+describe("Tier 5.5: Subscriber Profile, Real Username & Avatar Resolution", () => {
+  let host;
+  let plugin;
+  let origFetch;
+
+  beforeEach(async () => {
+    origFetch = globalThis.fetch;
+    host = createHost({ platform: "darwin" });
+    await host.storage.set("developer_token", "valid_dev_jwt");
+    await host.storage.set("developer_token_exp", Date.now() + 86400000);
+    globalThis.host = host;
+    plugin = await loadPlugin();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  test("5.5.1: signIn() resolves real Apple Music display name, handle, and avatar from /v1/me/social/profile", async () => {
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/me/storefront")) {
+        return new Response(
+          JSON.stringify({ data: [{ id: "jp", attributes: { name: "日本" } }] }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/social/profile")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "me", type: "personal-social-profiles" }],
+            resources: {
+              "personal-social-profiles": {
+                me: {
+                  id: "usr.jp.01",
+                  type: "personal-social-profiles",
+                  attributes: {
+                    name: "InkCitrus",
+                    handle: "@inkcitrus",
+                    isOnboarded: false,
+                    artwork: {
+                      url: "https://is1-ssl.mzstatic.com/image/thumb/Features/{w}x{h}{c}.{f}",
+                    },
+                  },
+                },
+              },
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/account")) {
+        return new Response(
+          JSON.stringify({
+            meta: { subscription: { active: true, storefront: "jp" } },
+            data: [{ id: "acc_jp_1", attributes: {} }],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const acc = await plugin.signIn();
+    assertEquals(acc.name, "InkCitrus");
+    assertEquals(acc.id, "inkcitrus");
+    assertEquals(
+      acc.imageUrl,
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/160x160cc.jpg"
+    );
+  });
+
+  test("5.5.2: account() auto-upgrades legacy v0.1.0 'Apple Music (日本)' session and formats avatarArtwork", async () => {
+    await host.storage.set("auth", {
+      mediaUserToken: "existing_v010_token",
+      storefront: "jp",
+      account: {
+        id: "apple-music-jp",
+        name: "Apple Music (日本)",
+        imageUrl: "",
+        page: "library",
+      },
+    });
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/me/social/profile")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "sp.99",
+                type: "personal-social-profiles",
+                attributes: { name: "燈 (Tomori)" },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/account")) {
+        return new Response(
+          JSON.stringify({
+            meta: { subscription: { active: true, storefront: "jp" } },
+            data: [
+              {
+                id: "acc_99",
+                attributes: {
+                  avatarArtwork: {
+                    url: "https://is1-ssl.mzstatic.com/image/thumb/Avatar/{w}x{h}bb-{q}.{f}",
+                  },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const upgraded = await plugin.account();
+    assertEquals(upgraded.name, "燈 (Tomori)");
+    assertEquals(
+      upgraded.imageUrl,
+      "https://is1-ssl.mzstatic.com/image/thumb/Avatar/160x160bb.jpg"
+    );
+  });
+
+  test("5.5.3: falls back to macOS system info user name when Apple profile has no name, and honors displayName override", async () => {
+    host._setProcessGranted(true);
+    host._setSpawnBehavior((rec) => {
+      if (rec.stdin.includes("system info")) {
+        return { code: 0, stdout: "USER:Zichen Wu\n", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+
+    await host.storage.set("auth", {
+      mediaUserToken: "existing_v010_token",
+      storefront: "jp",
+      account: {
+        id: "apple-music-jp",
+        name: "Apple Music (日本)",
+        imageUrl: "",
+        page: "library",
+      },
+    });
+
+    globalThis.fetch = async () => new Response("{}", { status: 404 });
+
+    const accFromMac = await plugin.account();
+    assertEquals(accFromMac.name, "Zichen Wu");
+
+    host._setSetting("displayName", "InkOrange");
+    const accCustom = await plugin.account();
+    assertEquals(accCustom.name, "InkOrange");
+  });
+});

@@ -710,9 +710,9 @@ async function getStoredMediaUserToken() {
   }
   return "";
 }
-function formatArtworkUrl(url, size = 600) {
+function formatArtworkUrl(url, size = 600, crop = "bb") {
   if (!url) return void 0;
-  return url.replace("{w}x{h}", `${size}x${size}`).replace("{w}", String(size)).replace("{h}", String(size));
+  return url.replace("{w}x{h}", `${size}x${size}`).replace("{w}", String(size)).replace("{h}", String(size)).replace("{c}", crop).replace("-{q}", "").replace("{q}", "80").replace("{f}", "jpg");
 }
 function extractAlbumIdFromUrl(url) {
   if (!url || typeof url !== "string") return void 0;
@@ -1557,10 +1557,212 @@ async function openInAppleMusic(options) {
   }
   return { url: targetUrl, opened: true };
 }
+var CURRENT_PROFILE_VERSION = 2;
+function isPlaceholderAccountName(name) {
+  if (!name || typeof name !== "string") return true;
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  if (/^Apple Music\s*\(.+\)$/i.test(trimmed)) return true;
+  if (trimmed === "Apple Music" || trimmed === "Apple Music Subscriber" || trimmed === "Apple Music \u8BA2\u9605\u7528\u6237") {
+    return true;
+  }
+  return false;
+}
+function isLegacyStorefrontPlaceholder(name) {
+  return Boolean(name && /^Apple Music\s*\(.+\)$/i.test(name.trim()));
+}
+function getCustomDisplayName() {
+  if (typeof host !== "undefined" && typeof host.setting === "function") {
+    const val = host.setting("displayName");
+    if (typeof val === "string" && val.trim()) {
+      return val.trim();
+    }
+  }
+  return "";
+}
+function extractSocialProfileCandidate(json) {
+  if (!json || typeof json !== "object") return {};
+  const candidates = [];
+  const personalMap = json.resources?.["personal-social-profiles"];
+  if (personalMap && typeof personalMap === "object") {
+    if (personalMap.me) candidates.push(personalMap.me);
+    for (const v of Object.values(personalMap)) {
+      if (v && typeof v === "object") candidates.push(v);
+    }
+  }
+  const socialMap = json.resources?.["social-profiles"];
+  if (socialMap && typeof socialMap === "object") {
+    for (const v of Object.values(socialMap)) {
+      if (v && typeof v === "object") candidates.push(v);
+    }
+  }
+  if (Array.isArray(json.data)) {
+    candidates.push(...json.data);
+  }
+  if (Array.isArray(json.included)) {
+    candidates.push(...json.included);
+  }
+  let id;
+  let name;
+  let handle;
+  let imageUrl;
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    const attr = c.attributes || {};
+    if (!id && typeof c.id === "string" && c.id.trim()) {
+      id = c.id.trim();
+    }
+    if (!name && typeof attr.name === "string" && attr.name.trim() && !isPlaceholderAccountName(attr.name)) {
+      name = attr.name.trim();
+    }
+    if (!handle && typeof attr.handle === "string" && attr.handle.trim()) {
+      handle = attr.handle.trim().replace(/^@+/, "");
+    }
+    if (!imageUrl && typeof attr.artwork?.url === "string" && attr.artwork.url.trim()) {
+      imageUrl = formatArtworkUrl(attr.artwork.url.trim(), 160, "cc");
+    }
+  }
+  return { id, name, handle, imageUrl };
+}
+function extractMeAccountCandidate(json) {
+  if (!json || typeof json !== "object") return {};
+  const storefront = typeof json.meta?.subscription?.storefront === "string" ? json.meta.subscription.storefront.trim().toLowerCase() : void 0;
+  const candidates = [];
+  if (Array.isArray(json.data)) candidates.push(...json.data);
+  if (json.resources?.accounts?.me) candidates.push(json.resources.accounts.me);
+  let id;
+  let name;
+  let imageUrl;
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    const attr = c.attributes || {};
+    if (!id && typeof c.id === "string" && c.id.trim()) {
+      id = c.id.trim();
+    }
+    const fullName = [attr.firstName, attr.lastName].filter((x) => typeof x === "string" && x.trim()).join(" ").trim();
+    const rawName = fullName || (typeof attr.nickname === "string" ? attr.nickname.trim() : "") || (typeof attr.handle === "string" ? attr.handle.trim().replace(/^@+/, "") : "") || (typeof attr.name === "string" ? attr.name.trim() : "");
+    if (!name && rawName && !isPlaceholderAccountName(rawName)) {
+      name = rawName;
+    }
+    const rawArt = attr.avatarArtwork?.url || attr.artwork?.url;
+    if (!imageUrl && typeof rawArt === "string" && rawArt.trim()) {
+      imageUrl = formatArtworkUrl(rawArt.trim(), 160, "cc");
+    }
+  }
+  return { id, name, imageUrl, storefront };
+}
+async function getMacSystemUserName() {
+  if (typeof host === "undefined" || host.platform !== "darwin" || typeof host.spawn !== "function") {
+    return "";
+  }
+  try {
+    const proc = host.spawn("/usr/bin/osascript", ["-"]);
+    proc.write(
+      'try\n  set fn to long user name of (system info)\n  if fn is not "" then return "USER:" & fn\nend try\nreturn "USER:" & (short user name of (system info))\n'
+    );
+    proc.closeStdin();
+    const lines = [];
+    while (true) {
+      const line = await proc.readLine();
+      if (line === null || line === void 0) break;
+      lines.push(line);
+    }
+    const exitCode = await proc.wait();
+    if (exitCode === 0) {
+      const out = lines.join("\n").trim();
+      if (out.startsWith("USER:")) {
+        const user = out.slice(5).trim();
+        if (user && !user.includes("	") && !user.includes("\n")) {
+          return user;
+        }
+      }
+    }
+  } catch {
+  }
+  return "";
+}
+async function resolveSubscriberProfile(mediaUserToken, devToken, fallbackStorefront) {
+  const authHeaders = {
+    Authorization: `Bearer ${devToken}`,
+    Origin: "https://music.apple.com",
+    Referer: "https://music.apple.com/",
+    "Music-User-Token": mediaUserToken
+  };
+  const fetchJsonSafe = async (url) => {
+    try {
+      const res = await fetch(url, { headers: authHeaders });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+  const [socialMapJson, meAccountJson] = await Promise.all([
+    fetchJsonSafe(
+      `${AMP_API_BASE}/me/social/profile?include=social-profile&with=nonOnboarded&platform=web&format%5Bresources%5D=map`
+    ),
+    fetchJsonSafe(
+      `${AMP_API_BASE}/me/account?meta=subscription&challenge%5BsubscriptionCapabilities%5D=voice,premium&platform=web`
+    )
+  ]);
+  let social = extractSocialProfileCandidate(socialMapJson);
+  if (!social.name && !social.handle && !social.imageUrl) {
+    const socialPlainJson = await fetchJsonSafe(
+      `${AMP_API_BASE}/me/social/profile?include=social-profile&with=nonOnboarded`
+    );
+    const altSocial = extractSocialProfileCandidate(socialPlainJson);
+    social = {
+      id: social.id || altSocial.id,
+      name: social.name || altSocial.name,
+      handle: social.handle || altSocial.handle,
+      imageUrl: social.imageUrl || altSocial.imageUrl
+    };
+  }
+  const meAcc = extractMeAccountCandidate(meAccountJson);
+  const storefront = meAcc.storefront || fallbackStorefront || "us";
+  let resolvedName = social.name || social.handle || meAcc.name || "";
+  if (!resolvedName) {
+    const libPlJson = await fetchJsonSafe(`${AMP_API_BASE}/me/library/playlists?limit=10`);
+    if (Array.isArray(libPlJson?.data)) {
+      for (const pl of libPlJson.data) {
+        if (pl?.attributes?.canEdit && typeof pl?.attributes?.curatorName === "string") {
+          const curator = pl.attributes.curatorName.trim();
+          if (curator && !isPlaceholderAccountName(curator)) {
+            resolvedName = curator;
+            break;
+          }
+        }
+      }
+    }
+  }
+  let foundRealProfile = Boolean(resolvedName || social.imageUrl || meAcc.imageUrl);
+  if (!resolvedName) {
+    const macUser = await getMacSystemUserName();
+    if (macUser) {
+      resolvedName = macUser;
+      foundRealProfile = true;
+    }
+  }
+  const customName = getCustomDisplayName();
+  const finalName = customName || resolvedName || tr("Apple Music Subscriber");
+  const finalImage = social.imageUrl || meAcc.imageUrl || "";
+  const finalId = social.handle || `apple-music-${storefront}`;
+  return {
+    account: {
+      id: finalId,
+      name: finalName,
+      imageUrl: finalImage,
+      page: "library"
+    },
+    storefront,
+    foundRealProfile: foundRealProfile || Boolean(customName)
+  };
+}
 async function verifyAndPersistToken(mediaUserToken) {
   let sfData;
+  let devToken;
   try {
-    const devToken = await getDeveloperToken();
+    devToken = await getDeveloperToken();
     const sfRes = await fetch("https://amp-api.music.apple.com/v1/me/storefront", {
       headers: {
         Authorization: `Bearer ${devToken}`,
@@ -1578,25 +1780,25 @@ async function verifyAndPersistToken(mediaUserToken) {
     }
     throw fail("signIn", tr("Failed to retrieve Apple Music storefront"));
   }
-  const storefront = sfData?.data?.[0]?.id || "us";
-  const userAccount = {
-    id: `apple-music-${storefront}`,
-    name: sfData?.data?.[0]?.attributes?.name ? `Apple Music (${sfData.data[0].attributes.name})` : tr("Apple Music Subscriber"),
-    imageUrl: "",
-    page: "library"
-  };
+  const initialStorefront = sfData?.data?.[0]?.id || "us";
+  const resolved = await resolveSubscriberProfile(
+    mediaUserToken,
+    devToken,
+    initialStorefront
+  );
   if (typeof host !== "undefined" && host.storage) {
     try {
       await host.storage.set("auth", {
         mediaUserToken,
-        storefront,
-        account: userAccount,
+        storefront: resolved.storefront,
+        account: resolved.account,
+        profileVersion: CURRENT_PROFILE_VERSION,
         signedInAt: Date.now()
       });
     } catch (_) {
     }
   }
-  return userAccount;
+  return resolved.account;
 }
 async function signIn() {
   if (typeof host !== "undefined" && typeof host.setting === "function") {
@@ -1644,11 +1846,40 @@ async function signOut() {
 }
 async function account() {
   if (typeof host === "undefined") return null;
+  const customName = getCustomDisplayName();
   if (host.storage) {
     try {
       const auth = await host.storage.get("auth");
-      if (auth && auth.mediaUserToken && auth.account) {
-        return auth.account;
+      const token = cleanMediaUserToken(auth?.mediaUserToken);
+      if (auth && token) {
+        const storedAcc = auth.account;
+        const needsUpgrade = !storedAcc || auth.profileVersion !== CURRENT_PROFILE_VERSION || isLegacyStorefrontPlaceholder(storedAcc.name);
+        if (needsUpgrade) {
+          try {
+            const devToken = await getDeveloperToken();
+            const resolved = await resolveSubscriberProfile(
+              token,
+              devToken,
+              auth.storefront || "us"
+            );
+            const nextAccount = resolved.foundRealProfile || !storedAcc || isLegacyStorefrontPlaceholder(storedAcc.name) ? resolved.account : {
+              ...storedAcc,
+              name: customName || storedAcc.name,
+              imageUrl: resolved.account.imageUrl || storedAcc.imageUrl || ""
+            };
+            await host.storage.set("auth", {
+              ...auth,
+              storefront: resolved.storefront || auth.storefront || "us",
+              account: nextAccount,
+              profileVersion: CURRENT_PROFILE_VERSION
+            });
+            return nextAccount;
+          } catch {
+          }
+        }
+        if (storedAcc) {
+          return customName ? { ...storedAcc, name: customName } : storedAcc;
+        }
       }
     } catch (_) {
     }
@@ -1656,12 +1887,30 @@ async function account() {
   if (typeof host.setting === "function") {
     const pasted = cleanMediaUserToken(host.setting("mediaUserToken"));
     if (pasted) {
-      return {
-        id: "apple-music-subscriber",
-        name: tr("Apple Music Subscriber"),
-        imageUrl: "",
-        page: "library"
-      };
+      try {
+        const devToken = await getDeveloperToken();
+        const resolved = await resolveSubscriberProfile(pasted, devToken, "us");
+        if (host.storage) {
+          try {
+            await host.storage.set("auth", {
+              mediaUserToken: pasted,
+              storefront: resolved.storefront,
+              account: resolved.account,
+              profileVersion: CURRENT_PROFILE_VERSION,
+              signedInAt: Date.now()
+            });
+          } catch {
+          }
+        }
+        return resolved.account;
+      } catch {
+        return {
+          id: "apple-music-subscriber",
+          name: customName || tr("Apple Music Subscriber"),
+          imageUrl: "",
+          page: "library"
+        };
+      }
     }
   }
   return null;
@@ -1675,6 +1924,22 @@ function setSetting(options) {
       } catch {
       }
     }
+  } else if (key === "displayName" && typeof host !== "undefined" && host.storage) {
+    Promise.resolve(host.storage.get("auth")).then((auth) => {
+      if (!auth || !auth.mediaUserToken) return;
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      if (trimmed && auth.account) {
+        return host.storage.set("auth", {
+          ...auth,
+          account: { ...auth.account, name: trimmed }
+        });
+      }
+      return host.storage.set("auth", {
+        ...auth,
+        profileVersion: 0
+      });
+    }).catch(() => {
+    });
   }
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);

@@ -4,6 +4,8 @@
   "Browse": "Browse",
   "Storefront Region": "Storefront Region",
   "Two-letter country code (e.g. us, cn, jp, gb)": "Two-letter country code (e.g. us, cn, jp, gb)",
+  "Display Name (Optional)": "Display Name (Optional)",
+  "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname.": "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname.",
   "Media User Token (Optional)": "Media User Token (Optional)",
   "Click Sign In to authenticate via browser window, or paste your media-user-token cookie from music.apple.com here.": "Click Sign In to authenticate via browser window, or paste your media-user-token cookie from music.apple.com here.",
   "Top Songs": "Top Songs",

@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -52,6 +52,11 @@
       "key": "storefront",
       "label": "Storefront Region",
       "help": "Two-letter country code (e.g. us, cn, jp, gb)"
+    },
+    {
+      "key": "displayName",
+      "label": "Display Name (Optional)",
+      "help": "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname."
     },
     {
       "key": "mediaUserToken",

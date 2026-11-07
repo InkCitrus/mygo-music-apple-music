@@ -4,6 +4,8 @@
   "Browse": "浏览",
   "Storefront Region": "国家或地区",
   "Two-letter country code (e.g. us, cn, jp, gb)": "两位国家代码（如 us, cn, jp, gb）",
+  "Display Name (Optional)": "显示昵称（可选）",
+  "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname.": "自定义主页问候语与侧边栏显示的用户名（留空则自动读取 Apple Music 个人资料名称）。",
   "Media User Token (Optional)": "Media User Token（可选）",
   "Click Sign In to authenticate via browser window, or paste your media-user-token cookie from music.apple.com here.": "点击“登录”即可通过内置网页窗口登录；也可手动粘贴从 music.apple.com 提取的 media-user-token。",
   "Top Songs": "热门歌曲",
