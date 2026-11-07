@@ -1,0 +1,10 @@
+{
+  "errors": [
+    {
+      "title": "Unknown Storefront",
+      "detail": "Unknown storefront 'xx'",
+      "status": "400",
+      "code": "40009"
+    }
+  ]
+}

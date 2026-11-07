@@ -1,0 +1,10 @@
+{
+  "errors": [
+    {
+      "title": "Forbidden",
+      "detail": "Invalid or expired media-user-token authentication",
+      "status": "403",
+      "code": "40300"
+    }
+  ]
+}

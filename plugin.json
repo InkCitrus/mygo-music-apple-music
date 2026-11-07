@@ -1,0 +1,84 @@
+{
+  "id": "apple-music",
+  "name": "Apple Music",
+  "version": "0.1.0",
+  "minAppVersion": "0.1.8",
+  "main": "dist/index.js",
+  "playback": "remote",
+  "permissions": {
+    "network": [
+      "amp-api.music.apple.com",
+      "amp-api-edge.music.apple.com",
+      "music.apple.com",
+      "beta.music.apple.com",
+      "*.music.apple.com",
+      "play.itunes.apple.com",
+      "itunes.apple.com",
+      "audio-ssl.itunes.apple.com",
+      "*.itunes.apple.com",
+      "*.mzstatic.com",
+      "lrclib.net"
+    ],
+    "process": [
+      "/usr/bin/osascript",
+      "osascript"
+    ]
+  },
+  "requestHeaders": [
+    {
+      "hosts": [
+        "amp-api.music.apple.com",
+        "amp-api-edge.music.apple.com"
+      ],
+      "headers": {
+        "Origin": "https://music.apple.com",
+        "Referer": "https://music.apple.com/"
+      }
+    },
+    {
+      "hosts": [
+        "*.mzstatic.com"
+      ],
+      "kinds": [
+        "image"
+      ],
+      "headers": {
+        "Referer": "https://music.apple.com/"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "key": "storefront",
+      "label": "Storefront Region",
+      "help": "Two-letter country code (e.g. us, cn, jp, gb)"
+    },
+    {
+      "key": "mediaUserToken",
+      "label": "Media User Token (Optional)",
+      "help": "Click Sign In to authenticate via browser window, or paste your media-user-token cookie from music.apple.com here.",
+      "link": "https://music.apple.com"
+    }
+  ],
+  "navigation": [
+    {
+      "builtin": "home"
+    },
+    {
+      "title": "Charts",
+      "page": "charts",
+      "icon": "chart"
+    },
+    {
+      "title": "Recently Played",
+      "page": "recent",
+      "icon": "calendar"
+    },
+    {
+      "builtin": "liked"
+    },
+    {
+      "builtin": "savedAlbums"
+    }
+  ]
+}

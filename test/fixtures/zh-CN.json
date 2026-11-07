@@ -1,0 +1,15 @@
+{
+  "Apple Music": "Apple Music",
+  "Home": "主页",
+  "Browse": "浏览",
+  "Storefront Region": "国家或地区",
+  "Two-letter country code (e.g. us, cn, jp, gb)": "两位国家代码（如 us, cn, jp, gb）",
+  "Top Songs": "热门歌曲",
+  "Top Albums": "热门专辑",
+  "Top Playlists": "热门歌单",
+  "Sign in to Apple Music first": "请先登录 Apple Music",
+  "This track is unavailable for streaming": "该歌曲不可播放",
+  "This track is unavailable in your region or requires a subscription": "该歌曲在当前地区不可用或需要订阅",
+  "Not supported": "不支持此功能",
+  "Please configure storefront in settings": "请在设置中配置国家或地区"
+}

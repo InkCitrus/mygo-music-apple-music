@@ -1,0 +1,10 @@
+{
+  "errors": [
+    {
+      "title": "Unauthorized",
+      "detail": "Missing or invalid authorization header, or Origin header mismatch",
+      "status": "401",
+      "code": "40100"
+    }
+  ]
+}

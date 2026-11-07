@@ -1,0 +1,24 @@
+{
+  "results": {
+    "artists": {
+      "href": "/v1/catalog/us/search?types=artists&term=taylor+swift",
+      "data": [
+        {
+          "id": "159260351",
+          "type": "artists",
+          "href": "/v1/catalog/us/artists/159260351",
+          "attributes": {
+            "name": "Taylor Swift",
+            "genreNames": ["Pop"],
+            "url": "https://music.apple.com/us/artist/taylor-swift/159260351",
+            "artwork": {
+              "width": 3000,
+              "height": 3000,
+              "url": "https://is1-ssl.mzstatic.com/image/thumb/Features125/v4/a7/67/62/a7676239-0118-a6b1-a67b-11786551b9e0/mza_10188439369324687259.png/{w}x{h}bb.jpg"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

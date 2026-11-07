@@ -1,0 +1,26 @@
+{
+  "results": {
+    "albums": {
+      "href": "/v1/catalog/us/search?types=albums&term=taylor+swift",
+      "data": [
+        {
+          "id": "1585800424",
+          "type": "albums",
+          "href": "/v1/catalog/us/albums/1585800424",
+          "attributes": {
+            "name": "Lover",
+            "artistName": "Taylor Swift",
+            "trackCount": 18,
+            "releaseDate": "2019-08-23",
+            "genreNames": ["Pop"],
+            "artwork": {
+              "width": 3000,
+              "height": 3000,
+              "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c3/82/06/c382069b-832f-7634-192d-96f3c5ea70d7/19UMGIM53909.rgb.jpg/{w}x{h}bb.jpg"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

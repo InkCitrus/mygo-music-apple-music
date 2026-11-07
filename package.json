@@ -1,0 +1,29 @@
+{
+  "name": "mygo-music-apple-music",
+  "version": "0.1.0",
+  "description": "Apple Music plugin for MyGo Music",
+  "license": "MIT",
+  "author": "InkCitrus",
+  "homepage": "https://github.com/InkCitrus/mygo-music-apple-music",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/InkCitrus/mygo-music-apple-music.git"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/runner.js && node test/adversarial_m2.test.js && node test/adversarial_m3.test.js && node test/adversarial_m4.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  },
+  "files": [
+    "plugin.json",
+    "dist",
+    "locales"
+  ]
+}

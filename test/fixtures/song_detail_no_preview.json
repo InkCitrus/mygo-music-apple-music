@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "id": "9999999999",
+      "type": "songs",
+      "href": "/v1/catalog/us/songs/9999999999",
+      "attributes": {
+        "name": "DRM Restricted Track",
+        "artistName": "Exclusive Artist",
+        "albumName": "Exclusive Album",
+        "genreNames": ["Pop"],
+        "durationInMillis": 210000,
+        "trackNumber": 1,
+        "releaseDate": "2024-01-01",
+        "artwork": {
+          "width": 3000,
+          "height": 3000,
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c3/82/06/c382069b-832f-7634-192d-96f3c5ea70d7/19UMGIM53909.rgb.jpg/{w}x{h}bb.jpg"
+        },
+        "previews": []
+      }
+    }
+  ]
+}

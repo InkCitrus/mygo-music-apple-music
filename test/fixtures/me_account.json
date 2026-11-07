@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "subscription": {
+      "active": true,
+      "storefront": "us",
+      "status": "active"
+    }
+  },
+  "data": [
+    {
+      "id": "user_apple_music_sub_123",
+      "type": "users",
+      "attributes": {
+        "name": "Apple Music Subscriber",
+        "preferredLanguageTag": "en-US"
+      }
+    }
+  ]
+}

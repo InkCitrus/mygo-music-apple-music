@@ -1,0 +1,7 @@
+node_modules/
+.test_data/
+.DS_Store
+*.log
+
+# NOTE: Do NOT ignore dist/ — MyGo Music installs plugins directly from GitHub
+# repository archives and requires dist/index.js at the path declared in plugin.json.

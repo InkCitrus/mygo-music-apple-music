@@ -1,0 +1,26 @@
+{
+  "results": {
+    "playlists": {
+      "href": "/v1/catalog/us/search?types=playlists&term=taylor+swift",
+      "data": [
+        {
+          "id": "pl.u-2aoq8mNTGEeN5",
+          "type": "playlists",
+          "href": "/v1/catalog/us/playlists/pl.u-2aoq8mNTGEeN5",
+          "attributes": {
+            "name": "Taylor Swift Essentials",
+            "curatorName": "Apple Music Pop",
+            "description": {
+              "standard": "An incredible pop catalog of anthems, ballads, and diary entries."
+            },
+            "artwork": {
+              "width": 3000,
+              "height": 3000,
+              "url": "https://is1-ssl.mzstatic.com/image/thumb/Features124/v4/e5/a1/38/e5a138df-2be8-9419-f538-4e892b158098/U01MUl9MVU5BX1dXMjAuanBn.jpg/{w}x{h}bb.jpg"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

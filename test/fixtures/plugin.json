@@ -1,0 +1,36 @@
+{
+  "id": "apple-music",
+  "name": "Apple Music",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "playback": "stream",
+  "permissions": {
+    "network": [
+      "amp-api.music.apple.com",
+      "music.apple.com",
+      "beta.music.apple.com",
+      "play.itunes.apple.com",
+      "audio-ssl.itunes.apple.com",
+      "*.mzstatic.com"
+    ]
+  },
+  "requestHeaders": {
+    "https://amp-api.music.apple.com/*": {
+      "Origin": "https://music.apple.com",
+      "Referer": "https://music.apple.com/"
+    }
+  },
+  "settings": [
+    {
+      "key": "storefront",
+      "type": "string",
+      "label": "Storefront Region",
+      "default": "us",
+      "help": "Two-letter country code (e.g. us, cn, jp, gb)"
+    }
+  ],
+  "navigation": [
+    { "title": "Home", "page": "home" },
+    { "title": "Browse", "page": "browse" }
+  ]
+}

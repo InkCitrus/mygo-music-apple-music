@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "id": "1585800430",
+      "type": "songs",
+      "href": "/v1/catalog/us/songs/1585800430",
+      "attributes": {
+        "name": "Cruel Summer",
+        "artistName": "Taylor Swift",
+        "albumName": "Lover",
+        "genreNames": ["Pop"],
+        "durationInMillis": 178426,
+        "trackNumber": 2,
+        "releaseDate": "2019-08-23",
+        "artwork": {
+          "width": 3000,
+          "height": 3000,
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c3/82/06/c382069b-832f-7634-192d-96f3c5ea70d7/19UMGIM53909.rgb.jpg/{w}x{h}bb.jpg"
+        },
+        "previews": [
+          {
+            "url": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/44/d0/58/44d058c4-eb17-dcf3-2280-928424040974/mzaf_1004163999901538356.plus.aac.p.m4a"
+          }
+        ]
+      }
+    }
+  ]
+}

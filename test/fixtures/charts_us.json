@@ -1,0 +1,114 @@
+{
+  "results": {
+    "songs": [
+      {
+        "name": "Top Songs",
+        "chart": "most-played",
+        "href": "/v1/catalog/us/charts?types=songs",
+        "data": [
+          {
+            "id": "1585800430",
+            "type": "songs",
+            "href": "/v1/catalog/us/songs/1585800430",
+            "attributes": {
+              "name": "Cruel Summer",
+              "artistName": "Taylor Swift",
+              "albumName": "Lover",
+              "genreNames": ["Pop", "Music"],
+              "durationInMillis": 178426,
+              "trackNumber": 2,
+              "releaseDate": "2019-08-23",
+              "isrc": "USUG11901472",
+              "artwork": {
+                "width": 3000,
+                "height": 3000,
+                "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c3/82/06/c382069b-832f-7634-192d-96f3c5ea70d7/19UMGIM53909.rgb.jpg/{w}x{h}bb.jpg"
+              },
+              "previews": [
+                {
+                  "url": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/44/d0/58/44d058c4-eb17-dcf3-2280-928424040974/mzaf_1004163999901538356.plus.aac.p.m4a"
+                }
+              ]
+            }
+          },
+          {
+            "id": "1440818825",
+            "type": "songs",
+            "href": "/v1/catalog/us/songs/1440818825",
+            "attributes": {
+              "name": "bad guy",
+              "artistName": "Billie Eilish",
+              "albumName": "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?",
+              "genreNames": ["Alternative", "Music"],
+              "durationInMillis": 194087,
+              "trackNumber": 2,
+              "releaseDate": "2019-03-29",
+              "artwork": {
+                "width": 3000,
+                "height": 3000,
+                "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/6e/8f/33/6e8f3316-2a7e-1282-520e-f0b40eb93bcf/19UMGIM16335.rgb.jpg/{w}x{h}bb.jpg"
+              },
+              "previews": [
+                {
+                  "url": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/33/1b/ee/331bee61-7132-7ee0-d021-c4d7ec6b7bb8/mzaf_7306235732152028681.plus.aac.p.m4a"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "albums": [
+      {
+        "name": "Top Albums",
+        "chart": "most-played",
+        "href": "/v1/catalog/us/charts?types=albums",
+        "data": [
+          {
+            "id": "1585800424",
+            "type": "albums",
+            "href": "/v1/catalog/us/albums/1585800424",
+            "attributes": {
+              "name": "Lover",
+              "artistName": "Taylor Swift",
+              "trackCount": 18,
+              "releaseDate": "2019-08-23",
+              "genreNames": ["Pop"],
+              "artwork": {
+                "width": 3000,
+                "height": 3000,
+                "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c3/82/06/c382069b-832f-7634-192d-96f3c5ea70d7/19UMGIM53909.rgb.jpg/{w}x{h}bb.jpg"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "playlists": [
+      {
+        "name": "Top Playlists",
+        "chart": "featured",
+        "href": "/v1/catalog/us/charts?types=playlists",
+        "data": [
+          {
+            "id": "pl.u-2aoq8mNTGEeN5",
+            "type": "playlists",
+            "href": "/v1/catalog/us/playlists/pl.u-2aoq8mNTGEeN5",
+            "attributes": {
+              "name": "Today's Hits",
+              "curatorName": "Apple Music",
+              "description": {
+                "standard": "The biggest songs right now."
+              },
+              "artwork": {
+                "width": 3000,
+                "height": 3000,
+                "url": "https://is1-ssl.mzstatic.com/image/thumb/Features124/v4/e5/a1/38/e5a138df-2be8-9419-f538-4e892b158098/U01MUl9MVU5BX1dXMjAuanBn.jpg/{w}x{h}bb.jpg"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
