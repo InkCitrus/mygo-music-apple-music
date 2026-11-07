@@ -751,4 +751,94 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     check = await plugin.isLiked({ ids: ["i.new_song"] });
     assertEquals(check["i.new_song"], false);
   });
+
+  test("5.6.3: browse({ page: 'library' }) renders subscriber My Page profile instead of jumping to Recently Played", async () => {
+    await host.storage.set("auth", {
+      mediaUserToken: "sub_token_jp",
+      storefront: "jp",
+      profileVersion: 2,
+      account: {
+        id: "inkcitrus",
+        name: "InkCitrus",
+        imageUrl: "https://is1-ssl.mzstatic.com/image/thumb/Features/160x160cc.jpg",
+        page: "library",
+      },
+    });
+
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/me/history/heavy-rotation")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "1679432000",
+                type: "albums",
+                attributes: { name: "Magic Lantern", artistName: "Yorushika" },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/library/recently-added")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "l.album01",
+                type: "library-albums",
+                attributes: { name: "迷跡波", artistName: "MyGO!!!!!" },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/library/playlists")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "p.shazam",
+                type: "library-playlists",
+                attributes: { name: "My Shazam Tracks", canEdit: true },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/recent/played/tracks")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "1679432100",
+                type: "songs",
+                attributes: {
+                  name: "Algernon",
+                  artistName: "Yorushika",
+                  albumName: "Magic Lantern",
+                  durationInMillis: 254000,
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const myPage = await plugin.browse({ page: "library" });
+    assertEquals(myPage.title, "InkCitrus");
+    assertIncludes(myPage.description, "@inkcitrus");
+    assertTruthy(myPage.imageUrl, "My Page should include user round avatar");
+    const sectionTitles = myPage.sections.map((s) => s.title);
+    assertIncludes(sectionTitles, "Heavy Rotation");
+    assertIncludes(sectionTitles, "Recently Added");
+    assertIncludes(sectionTitles, "My Playlists");
+    assertIncludes(sectionTitles, "Recently Played");
+  });
 });

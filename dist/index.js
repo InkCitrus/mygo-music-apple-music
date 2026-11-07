@@ -1087,6 +1087,79 @@ async function home() {
     sections
   };
 }
+async function buildMyPageBrowse(sf, lang) {
+  const token = await getStoredMediaUserToken();
+  if (!token) {
+    throw fail("signIn", tr("Sign in to Apple Music first"));
+  }
+  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks] = await Promise.all([
+    account().catch(() => null),
+    requestApi(`/me/history/heavy-rotation?limit=12&l=${lang}`, { requireAuth: true }).catch(
+      () => null
+    ),
+    requestApi(`/me/library/recently-added?limit=16&l=${lang}`, { requireAuth: true }).catch(
+      () => null
+    ),
+    playlists().catch(() => []),
+    recent().catch(() => [])
+  ]);
+  const sections = [];
+  if (Array.isArray(heavyJson?.data) && heavyJson.data.length > 0) {
+    const heavyAlbums = heavyJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
+    const heavyPlaylists = heavyJson.data.filter(
+      (x) => String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
+    ).map(mapPlaylist);
+    if (heavyAlbums.length > 0 || heavyPlaylists.length > 0) {
+      sections.push({
+        title: tr("Heavy Rotation"),
+        ...heavyAlbums.length > 0 ? { albums: heavyAlbums } : {},
+        ...heavyPlaylists.length > 0 ? { playlists: heavyPlaylists } : {}
+      });
+    }
+  }
+  if (Array.isArray(recentAddedJson?.data) && recentAddedJson.data.length > 0) {
+    const addedAlbums = recentAddedJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
+    const addedPlaylists = recentAddedJson.data.filter(
+      (x) => String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
+    ).map(mapPlaylist);
+    if (addedAlbums.length > 0 || addedPlaylists.length > 0) {
+      sections.push({
+        title: tr("Recently Added"),
+        ...addedAlbums.length > 0 ? { albums: addedAlbums } : {},
+        ...addedPlaylists.length > 0 ? { playlists: addedPlaylists } : {}
+      });
+    }
+  }
+  const myPlaylists = allPlaylists.filter((p) => p.mine);
+  const displayPlaylists = myPlaylists.length > 0 ? myPlaylists : allPlaylists;
+  if (displayPlaylists.length > 0) {
+    sections.push({
+      title: myPlaylists.length > 0 ? tr("My Playlists") : tr("Playlists"),
+      kind: "playlists",
+      playlists: displayPlaylists,
+      items: displayPlaylists
+    });
+  }
+  if (recentTracks.length > 0) {
+    const previewTracks = recentTracks.slice(0, 10);
+    sections.push({
+      title: tr("Recently Played"),
+      kind: "tracks",
+      tracks: previewTracks,
+      items: previewTracks,
+      morePage: "recent"
+    });
+  }
+  const handleLabel = acc?.id && !acc.id.startsWith("apple-music-") ? `@${acc.id} \xB7 ` : "";
+  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})`;
+  return {
+    title: acc?.name || tr("Library"),
+    subtitle: desc,
+    description: desc,
+    imageUrl: acc?.imageUrl || void 0,
+    sections
+  };
+}
 async function browse(options) {
   const page = options?.page || options?.id || "charts";
   const sf = await getStorefront();
@@ -1094,7 +1167,10 @@ async function browse(options) {
   if (page === "charts" || page === "browse" || page === "home") {
     return home();
   }
-  if (page === "recent" || page === "library") {
+  if (page === "library" || page === "profile") {
+    return buildMyPageBrowse(sf, lang);
+  }
+  if (page === "recent") {
     const recentTracks = await recent();
     return {
       title: tr("Recently Played"),
