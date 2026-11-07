@@ -2017,6 +2017,43 @@ async function home() {
   }
   return buildChartsBrowse(sf, lang, tr("Home"));
 }
+function dedupeLibraryAlbums(rawItems, lang = "en") {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) return [];
+  const groups = /* @__PURE__ */ new Map();
+  for (const item of rawItems) {
+    if (item?.type && !String(item.type).includes("album")) {
+      continue;
+    }
+    const catalogId = item.relationships?.catalog?.data?.[0]?.id || item.attributes?.playParams?.catalogId;
+    const artworkUrl = item.attributes?.artwork?.url || "";
+    const artKeyMatch = artworkUrl.match(/\/thumb\/[^/]+\/[^/]+\/[^/]+\/[^/]+\/([^/]+)\/([^/]+)/);
+    const artKey = artKeyMatch ? artKeyMatch[2] : artworkUrl ? artworkUrl.slice(-40) : "";
+    const key = catalogId ? `cat:${catalogId}` : artKey ? `art:${artKey}` : `id:${item.id}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(item);
+  }
+  const deduped = [];
+  for (const [, items] of groups.entries()) {
+    if (items.length === 1) {
+      deduped.push(items[0]);
+    } else {
+      const withTracks = items.find((it) => (it.attributes?.trackCount ?? 0) > 0) || items[0];
+      const merged = { ...withTracks, attributes: { ...withTracks.attributes } };
+      const isEnglishLang = lang.startsWith("en");
+      const enItem = items.find((it) => /[a-z]/i.test(it.attributes?.name || ""));
+      const cjkItem = items.find((it) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/i.test(it.attributes?.name || ""));
+      if (isEnglishLang && enItem?.attributes?.name) {
+        merged.attributes.name = enItem.attributes.name;
+      } else if (!isEnglishLang && cjkItem?.attributes?.name) {
+        merged.attributes.name = cjkItem.attributes.name;
+      }
+      deduped.push(merged);
+    }
+  }
+  return deduped;
+}
 async function buildMyPageBrowse(sf, lang) {
   const token = await getStoredMediaUserToken();
   if (!token) {
@@ -2024,10 +2061,10 @@ async function buildMyPageBrowse(sf, lang) {
   }
   const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks, liveQuality] = await Promise.all([
     account().catch(() => null),
-    requestApi(`/me/history/heavy-rotation?limit=12&l=${lang}`, { requireAuth: true }).catch(
+    requestApi(`/me/history/heavy-rotation?limit=16&include=catalog&l=${lang}`, { requireAuth: true }).catch(
       () => null
     ),
-    requestApi(`/me/library/recently-added?limit=16&l=${lang}`, { requireAuth: true }).catch(
+    requestApi(`/me/library/recently-added?limit=24&include=catalog&l=${lang}`, { requireAuth: true }).catch(
       () => null
     ),
     playlists().catch(() => []),
@@ -2037,7 +2074,7 @@ async function buildMyPageBrowse(sf, lang) {
   const sections = [];
   if (Array.isArray(heavyJson?.data) && heavyJson.data.length > 0) {
     const heavyBuckets = createSectionBuckets();
-    heavyBuckets.albums = heavyJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
+    heavyBuckets.albums = dedupeLibraryAlbums(heavyJson.data, lang).filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
     heavyBuckets.playlists = heavyJson.data.filter(
       (x) => String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
     ).map(mapPlaylist);
@@ -2045,7 +2082,7 @@ async function buildMyPageBrowse(sf, lang) {
   }
   if (Array.isArray(recentAddedJson?.data) && recentAddedJson.data.length > 0) {
     const addedBuckets = createSectionBuckets();
-    addedBuckets.albums = recentAddedJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
+    addedBuckets.albums = dedupeLibraryAlbums(recentAddedJson.data, lang).filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
     addedBuckets.playlists = recentAddedJson.data.filter(
       (x) => String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
     ).map(mapPlaylist);
@@ -2303,7 +2340,7 @@ async function album(options) {
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   let item = null;
   const isLibrary = id.startsWith("l.");
-  const endpoint = isLibrary ? `/me/library/albums/${encodeURIComponent(id)}?include=tracks&l=${lang}` : `/catalog/${sf}/albums/${encodeURIComponent(id)}?l=${lang}`;
+  const endpoint = isLibrary ? `/me/library/albums/${encodeURIComponent(id)}?include=tracks,catalog&l=${lang}` : `/catalog/${sf}/albums/${encodeURIComponent(id)}?l=${lang}`;
   try {
     const json = await requestApi(endpoint, { requireAuth: isLibrary });
     item = json.data?.[0];
@@ -2330,7 +2367,21 @@ async function album(options) {
     throw fail("unavailable", tr("Album not found"));
   }
   const alb = mapAlbum(item);
-  const trackItems = item.relationships?.tracks?.data || [];
+  let trackItems = item.relationships?.tracks?.data || [];
+  if (trackItems.length === 0 && isLibrary) {
+    const catId = item.relationships?.catalog?.data?.[0]?.id || item.attributes?.playParams?.catalogId;
+    if (catId) {
+      try {
+        const catJson = await requestApi(
+          `/catalog/${sf}/albums/${encodeURIComponent(catId)}?l=${lang}`
+        );
+        if (catJson.data?.[0]?.relationships?.tracks?.data?.length) {
+          trackItems = catJson.data[0].relationships.tracks.data;
+        }
+      } catch {
+      }
+    }
+  }
   const tracks = trackItems.map(mapTrack);
   return {
     album: alb,
@@ -2607,10 +2658,10 @@ async function savedAlbums(options) {
   const offset = Math.max(0, Number(options?.offset) || 0);
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   const json = await requestApi(
-    `/me/library/albums?limit=50&offset=${offset}&l=${lang}`,
+    `/me/library/albums?limit=50&offset=${offset}&include=catalog&l=${lang}`,
     { requireAuth: true }
   );
-  const items = json.data || [];
+  const items = dedupeLibraryAlbums(json.data || [], lang);
   return {
     albums: items.map(mapAlbum),
     more: Boolean(json.next)
@@ -3388,6 +3439,7 @@ export {
   buildVolumeScript,
   buildWriteAudioQualityScript,
   createPlaylist,
+  dedupeLibraryAlbums,
   escapeAppleScriptString,
   extractCatalogStoreId,
   fail,
