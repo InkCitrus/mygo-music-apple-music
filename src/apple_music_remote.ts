@@ -15,6 +15,8 @@ export interface CachedTrackMeta {
 export type MusicAudioQualityMode = "high" | "lossless" | "hires";
 
 interface ActivePlaybackSession {
+  generation: number;
+  isStarting: boolean;
   meta: CachedTrackMeta;
   storefront: string;
   trackId: string;
@@ -25,15 +27,19 @@ interface ActivePlaybackSession {
   startedAt: number;
   lastCommandAt: number;
   maxPositionMs: number;
+  hasObservedPlaying: boolean;
+  initialReportedName?: string;
   lastKnownState: RemoteState | null;
 }
 
 let activeSession: ActivePlaybackSession | null = null;
 let lastSyncedAudioQuality: MusicAudioQualityMode | null = null;
+let playGeneration = 0;
 
 export function resetRemoteSession(): void {
   activeSession = null;
   lastSyncedAudioQuality = null;
+  playGeneration = 0;
 }
 
 export function parseAudioQualitySetting(raw?: string | null): MusicAudioQualityMode | null {
@@ -107,21 +113,47 @@ export function toMusicAppUrl(rawUrl: string | undefined, sf: string, songId: st
   return `music://music.apple.com/${cleanSf}/song/_/${encodeURIComponent(cleanId)}`;
 }
 
+export function extractCatalogStoreId(catalogId?: string, musicUrl?: string): string {
+  const direct = String(catalogId || "").trim();
+  if (/^\d+$/.test(direct)) {
+    return direct;
+  }
+  const url = String(musicUrl || "").trim();
+  if (!url) return "";
+  const itemMatch = url.match(/[?&]i=(\d+)/);
+  if (itemMatch?.[1]) return itemMatch[1];
+  const idMatch = url.match(/[?&]id=(\d+)/);
+  if (idMatch?.[1]) return idMatch[1];
+  const songMatch = url.match(/\/song\/(?:[^/?#]+\/)?(\d+)/);
+  if (songMatch?.[1]) return songMatch[1];
+  return "";
+}
+
+export function toPlayStoreIdUrl(storeId?: string): string {
+  const cleanId = String(storeId || "").trim();
+  if (!/^\d+$/.test(cleanId)) return "";
+  return `music://music.apple.com/?cmd=playStoreID&id=${encodeURIComponent(cleanId)}`;
+}
+
 export function buildPlayScript(params: {
   name: string;
   artistName: string;
   musicUrl: string;
+  catalogId?: string;
   positionSec: number;
 }): string {
   const safeName = escapeAppleScriptString(params.name);
   const safeArtist = escapeAppleScriptString(params.artistName);
   const safeUrl = escapeAppleScriptString(params.musicUrl);
+  const storeId = extractCatalogStoreId(params.catalogId, params.musicUrl);
+  const safePlayStoreUrl = escapeAppleScriptString(toPlayStoreIdUrl(storeId));
   const posSec = Math.max(0, Number.isFinite(params.positionSec) ? params.positionSec : 0);
 
   return `
 set targetName to "${safeName}"
 set targetArtist to "${safeArtist}"
 set targetURL to "${safeUrl}"
+set playStoreURL to "${safePlayStoreUrl}"
 set startPos to ${posSec.toFixed(3)}
 
 set prevApp to ""
@@ -148,6 +180,9 @@ tell application "Music"
         else
           set matchedTracks to (every track of library playlist 1 whose name is targetName)
         end if
+        if (count of matchedTracks) is 0 and playStoreURL is "" then
+          set matchedTracks to (every track of library playlist 1 whose name is targetName)
+        end if
       end ignoring
       if (count of matchedTracks) > 0 then
         play (item 1 of matchedTracks)
@@ -157,26 +192,33 @@ tell application "Music"
   end if
 
   if playedFromLib is false then
-    if targetURL is "" then
+    if playStoreURL is "" and targetURL is "" then
       error "MISSING_CATALOG_URL"
     end if
-    open location targetURL
-    repeat 10 times
-      delay 0.35
+    try
+      stop
+    end try
+    if playStoreURL is not "" then
+      open location playStoreURL
+    else
+      open location targetURL
+    end if
+    repeat with waitIdx from 1 to 20
+      delay 0.25
       try
         if player state is playing then exit repeat
-        play
-        if player state is playing then exit repeat
+        if waitIdx >= 8 and player state is paused then
+          play
+        end if
       end try
     end repeat
-    try
-      if player state is not playing then play
-    end try
   end if
 
   if startPos > 0 then
     try
-      set player position to startPos
+      if player state is playing or player state is paused then
+        set player position to startPos
+      end if
     end try
   end if
 end tell
@@ -597,20 +639,31 @@ export async function executeRemotePlay(params: {
   }
 
   const songIdForUrl = meta.catalogId || meta.id;
+  const catalogStoreId =
+    meta.catalogId && /^\d+$/.test(meta.catalogId)
+      ? meta.catalogId
+      : /^\d+$/.test(meta.id)
+        ? meta.id
+        : undefined;
   const musicUrl = toMusicAppUrl(meta.url, storefront, songIdForUrl, meta.albumId);
   const posSec = Math.max(0, (positionMs || 0) / 1000);
+  const gen = ++playGeneration;
 
   activeSession = {
+    generation: gen,
+    isStarting: true,
     meta,
     storefront,
     trackId: meta.id,
-    catalogId: meta.catalogId,
+    catalogId: catalogStoreId,
     name: meta.name,
     artistName: meta.artistName,
     durationMs: meta.durationMs || 0,
     startedAt: Date.now(),
     lastCommandAt: Date.now(),
     maxPositionMs: Math.max(0, positionMs || 0),
+    hasObservedPlaying: false,
+    initialReportedName: undefined,
     lastKnownState: {
       playing: true,
       trackId: meta.id,
@@ -625,11 +678,20 @@ export async function executeRemotePlay(params: {
     name: meta.name,
     artistName: meta.artistName,
     musicUrl,
+    catalogId: catalogStoreId,
     positionSec: posSec,
   });
 
-  await runAppleScript(script);
-  if (activeSession && activeSession.trackId === meta.id) {
+  try {
+    await runAppleScript(script);
+  } catch (err) {
+    if (activeSession && activeSession.generation === gen) {
+      activeSession = null;
+    }
+    throw err;
+  }
+  if (activeSession && activeSession.generation === gen) {
+    activeSession.isStarting = false;
     activeSession.lastCommandAt = Date.now();
   }
 }
@@ -682,8 +744,26 @@ function parseLocalizedNumber(raw: string, fallback = 0): number {
 }
 
 export async function executeRemoteState(): Promise<RemoteState | null> {
+  if (activeSession?.isStarting) {
+    return activeSession.lastKnownState;
+  }
+
+  const sessionAtStart = activeSession;
   const out = await runAppleScript(buildStateScript());
+
+  // Discard stale state snapshot if a new remotePlay superseded the session in flight
+  if (activeSession !== sessionAtStart) {
+    return activeSession?.lastKnownState ?? null;
+  }
+
   if (!out || out === "STOPPED") {
+    if (
+      activeSession &&
+      !activeSession.hasObservedPlaying &&
+      Date.now() - activeSession.lastCommandAt < 4000
+    ) {
+      return activeSession.lastKnownState;
+    }
     activeSession = null;
     return null;
   }
@@ -700,15 +780,34 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
   const playing = rawState === "playing";
 
   if (activeSession) {
+    if (playing) {
+      activeSession.hasObservedPlaying = true;
+    }
+
     const settled = Date.now() - activeSession.lastCommandAt > 2000;
+
+    if (
+      reportedName &&
+      activeSession.initialReportedName === undefined &&
+      (!settled || posMs < 15000)
+    ) {
+      activeSession.initialReportedName = reportedName;
+    }
 
     // Detect if Music.app finished our track and auto-advanced to a subsequent album/autoplay song:
     // Case 1: Reported track title changed after settling (when library metadata is readable)
+    const matchesRequested =
+      Boolean(activeSession.name) &&
+      reportedName.toLowerCase() === activeSession.name.toLowerCase();
+    const matchesInitial =
+      Boolean(activeSession.initialReportedName) &&
+      reportedName.toLowerCase() === activeSession.initialReportedName!.toLowerCase();
+
     if (
       settled &&
       reportedName &&
-      activeSession.name &&
-      reportedName.toLowerCase() !== activeSession.name.toLowerCase() &&
+      !matchesRequested &&
+      !matchesInitial &&
       activeSession.maxPositionMs > 5000
     ) {
       try {

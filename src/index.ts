@@ -51,6 +51,7 @@ export {
   buildVolumeScript,
   buildWriteAudioQualityScript,
   escapeAppleScriptString,
+  extractCatalogStoreId,
   formatAudioQualityLabel,
   parseAppleTTML,
   parseAudioQualitySetting,
@@ -59,6 +60,7 @@ export {
   resetRemoteSession,
   syncMusicAppAudioQuality,
   toMusicAppUrl,
+  toPlayStoreIdUrl,
 } from "./apple_music_remote.js";
 
 const DEFAULT_DEV_TOKEN =

@@ -212,6 +212,148 @@ describe("Tier 5.2: Full-Track Remote Playback Lifecycle (remote*)", () => {
       "unsupported"
     );
   });
+
+  test("5.2.7: buildPlayScript stops stale track and uses native cmd=playStoreID URL for catalog songs", async () => {
+    host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+
+    await plugin.remotePlay({ ids: ["1783644617"], start: 0, position: 0 });
+    const script = host._getSpawnHistory()[0].stdin;
+
+    assertIncludes(
+      script,
+      'set playStoreURL to "music://music.apple.com/?cmd=playStoreID&id=1783644617"'
+    );
+    const stopIdx = script.indexOf("\n    try\n      stop\n    end try");
+    const openIdx = script.indexOf("open location playStoreURL");
+    assert(stopIdx > 0 && openIdx > stopIdx, "must stop stale track before opening playStoreURL");
+    assert(
+      !script.includes("if player state is not playing then play"),
+      "must not issue bare play when player state is stopped"
+    );
+  });
+
+  test("5.2.8: remoteState keeps session alive during initial STOPPED lease-buffering window then ends cleanly on real stop", async () => {
+    host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+    await plugin.remotePlay({ ids: ["1783644617"], start: 0, position: 0 });
+
+    // Immediate poll while FairPlay lease is still buffering (Music.app reports STOPPED)
+    host._setSpawnBehavior(() => ({ stdout: "STOPPED", code: 0 }));
+    const bufferingState = await plugin.remoteState();
+    assertTruthy(bufferingState, "must not drop activeSession during initial lease buffering");
+    assertEquals(bufferingState.trackId, "1783644617");
+    assertEquals(bufferingState.playing, true);
+
+    // Once Music.app starts playing and later reaches STOPPED at end of 1-item queue, return null
+    host._setSpawnBehavior(() => ({
+      stdout: "playing\t12000\t256613\t85\tMacBook Pro\t春日影 (MyGO!!!!! ver.)\tMyGO!!!!!",
+      code: 0,
+    }));
+    const playingState = await plugin.remoteState();
+    assertTruthy(playingState);
+    assertEquals(playingState.position, 12000);
+
+    host._setSpawnBehavior(() => ({ stdout: "STOPPED", code: 0 }));
+    const endedState = await plugin.remoteState();
+    assertEquals(endedState, null, "must report null once track finishes after having played");
+  });
+
+  test("5.2.9: remoteState supports localized Music.app track titles without false 5s cutoff, yet stops autoplay spillover", async () => {
+    const origNow = Date.now;
+    let fakeNow = 1_700_000_000_000;
+    Date.now = () => fakeNow;
+    try {
+      host._setSpawnBehavior(() => ({ stdout: "OK|CATALOG", code: 0 }));
+      // Catalog metadata is English ("Haruhikage"), while Music.app reports Japanese ("春日影")
+      await plugin.remotePlay({ ids: ["1783644617"], start: 0, position: 0 });
+
+      // Early poll records initialReportedName = "アルジャーノン" (localized title in Music.app)
+      fakeNow += 500;
+      host._setSpawnBehavior(() => ({
+        stdout: "playing\t1200\t256613\t80\tAirPods 4\tアルジャーノン\tヨルシカ",
+        code: 0,
+      }));
+      const st1 = await plugin.remoteState();
+      assertTruthy(st1);
+      assertEquals(st1.trackId, "1783644617");
+
+      // After settling (>2s) and >5s playback, localized title still matches initialReportedName -> must NOT pause!
+      fakeNow += 8000;
+      host._setSpawnBehavior(() => ({
+        stdout: "playing\t9200\t256613\t80\tAirPods 4\tアルジャーノン\tヨルシカ",
+        code: 0,
+      }));
+      const st2 = await plugin.remoteState();
+      assertTruthy(st2, "must not falsely pause localized title after 5s");
+      assertEquals(st2.position, 9200);
+
+      // When Music.app later auto-advances to a genuinely different song, pause and end session
+      fakeNow += 250000;
+      let paused = false;
+      host._setSpawnBehavior((rec) => {
+        if (rec.stdin.includes("\n    pause\n")) {
+          paused = true;
+          return { stdout: "OK", code: 0 };
+        }
+        return {
+          stdout: "playing\t800\t215000\t80\tAirPods 4\t六兆年と一夜物語\tkemu",
+          code: 0,
+        };
+      });
+      const st3 = await plugin.remoteState();
+      assertEquals(st3, null, "must end session when Music.app auto-advances to another track");
+      assertEquals(paused, true, "must pause Music.app spillover track");
+    } finally {
+      Date.now = origNow;
+    }
+  });
+
+  test("5.2.10: remoteState during in-flight remotePlay never leaks previous song state", async () => {
+    let releasePlayScript;
+    const playGate = new Promise((resolve) => {
+      releasePlayScript = resolve;
+    });
+    const origSpawn = host.spawn.bind(host);
+    host.spawn = (cmd, args) => {
+      let stdinBuf = "";
+      let emitted = false;
+      return {
+        pid: 9999,
+        write: (t) => {
+          stdinBuf += String(t ?? "");
+        },
+        closeStdin: () => {},
+        readLine: async () => {
+          if (stdinBuf.includes("playStoreURL")) {
+            await playGate;
+            if (emitted) return null;
+            emitted = true;
+            return "OK|CATALOG";
+          }
+          if (emitted) return null;
+          emitted = true;
+          return "playing\t258248\t286973\t100\tAirPods 4\tPoppin' Shuffle\tPoppin'Party";
+        },
+        errorOutput: () => "",
+        wait: async () => 0,
+        kill: () => {},
+      };
+    };
+
+    try {
+      const playPromise = plugin.remotePlay({ ids: ["1783644617"], start: 0, position: 0 });
+      await new Promise((r) => setTimeout(r, 15));
+
+      const midState = await plugin.remoteState();
+      assertTruthy(midState);
+      assertEquals(midState.trackId, "1783644617");
+      assertEquals(midState.position, 0, "must not leak 258248ms from previous song");
+
+      releasePlayScript();
+      await playPromise;
+    } finally {
+      host.spawn = origSpawn;
+    }
+  });
 });
 
 describe("Tier 5.3: Word-by-Word Karaoke TTML Lyrics & LRCLIB Fallback", () => {
