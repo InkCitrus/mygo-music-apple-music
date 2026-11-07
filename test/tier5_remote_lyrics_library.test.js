@@ -602,3 +602,153 @@ describe("Tier 5.5: Subscriber Profile, Real Username & Avatar Resolution", () =
     assertEquals(accCustom.name, "InkOrange");
   });
 });
+
+describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)", () => {
+  let host;
+  let plugin;
+  let origFetch;
+
+  beforeEach(async () => {
+    origFetch = globalThis.fetch;
+    host = createHost({ platform: "darwin" });
+    await host.storage.set("developer_token", "valid_dev_jwt");
+    await host.storage.set("developer_token_exp", Date.now() + 86400000);
+    await host.storage.set("auth", {
+      mediaUserToken: "sub_token_jp",
+      storefront: "jp",
+      profileVersion: 2,
+      account: { id: "apple-music-jp", name: "InkCitrus", page: "library" },
+    });
+    globalThis.host = host;
+    plugin = await loadPlugin();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  test("5.6.1: playlists() deduplicates system Favorite Songs and liked() loads multi-page Favorite Songs", async () => {
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/me/library/playlists?limit=100")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "p.fav172",
+                type: "library-playlists",
+                attributes: {
+                  name: "Favorite Songs",
+                  canEdit: false,
+                  tags: ["favorited"],
+                },
+              },
+              {
+                id: "p.shazam",
+                type: "library-playlists",
+                attributes: { name: "My Shazam Tracks", canEdit: true },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/library/playlists/p.fav172/tracks?limit=100&offset=0")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "i.algernon",
+                type: "library-songs",
+                attributes: {
+                  name: "Algernon",
+                  artistName: "Yorushika",
+                  albumName: "Magic Lantern",
+                  durationInMillis: 254000,
+                  playParams: { id: "i.algernon", isLibrary: true, catalogId: "1679432100" },
+                },
+              },
+            ],
+            next: "/v1/me/library/playlists/p.fav172/tracks?offset=100",
+          }),
+          { status: 200 }
+        );
+      }
+      if (u.includes("/me/library/playlists/p.fav172/tracks?offset=100")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "i.rokuchonen",
+                type: "library-songs",
+                attributes: {
+                  name: "Rokuchonen to Ichiya Monogatari (feat. Ia)",
+                  artistName: "kemu",
+                  albumName: "Ia Super Best",
+                  durationInMillis: 215000,
+                  playParams: { id: "i.rokuchonen", isLibrary: true, catalogId: "987654321" },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const sidebarPlaylists = await plugin.playlists();
+    assertEquals(sidebarPlaylists.length, 1);
+    assertEquals(sidebarPlaylists[0].name, "My Shazam Tracks");
+
+    const likedRes = await plugin.liked({ offset: 0 });
+    assertEquals(likedRes.tracks.length, 2);
+    assertEquals(likedRes.tracks[0].name, "Algernon");
+    assertEquals(likedRes.tracks[1].name, "Rokuchonen to Ichiya Monogatari (feat. Ia)");
+    assertEquals(likedRes.more, false);
+
+    // Both library ID ("i.algernon") and catalog ID ("1679432100") resolve as liked!
+    const likedMap = await plugin.isLiked({
+      ids: ["i.algernon", "1679432100", "i.not_fav"],
+    });
+    assertEquals(likedMap["i.algernon"], true);
+    assertEquals(likedMap["1679432100"], true);
+    assertEquals(likedMap["i.not_fav"], false);
+  });
+
+  test("5.6.2: like({ id, on }) calls Apple /v1/me/favorites POST & DELETE and updates isLiked immediately", async () => {
+    const calls = [];
+    globalThis.fetch = async (url, init = {}) => {
+      const u = String(url);
+      calls.push({ url: u, method: (init.method || "GET").toUpperCase() });
+      if (u.includes("/me/favorites")) {
+        return new Response("", { status: 202 });
+      }
+      if (u.includes("/me/ratings")) {
+        return new Response("", { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    await plugin.like({ id: "i.new_song", on: true });
+    assert(
+      calls.some(
+        (c) => c.method === "POST" && c.url.includes("/me/favorites?ids[library-songs]=i.new_song")
+      ),
+      "like(on: true) must POST to /v1/me/favorites"
+    );
+    let check = await plugin.isLiked({ ids: ["i.new_song"] });
+    assertEquals(check["i.new_song"], true);
+
+    await plugin.like({ id: "i.new_song", on: false });
+    assert(
+      calls.some(
+        (c) =>
+          c.method === "DELETE" && c.url.includes("/me/favorites?ids[library-songs]=i.new_song")
+      ),
+      "like(on: false) must DELETE from /v1/me/favorites"
+    );
+    check = await plugin.isLiked({ ids: ["i.new_song"] });
+    assertEquals(check["i.new_song"], false);
+  });
+});

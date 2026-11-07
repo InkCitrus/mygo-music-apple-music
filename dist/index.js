@@ -1198,15 +1198,125 @@ async function artist(options) {
     albums: albumItems.map(mapAlbum)
   };
 }
+var favoritesPlaylistIdCache = null;
+var favoritesLookupDone = false;
+var favoritedIdsCache = /* @__PURE__ */ new Set();
+var favoritesHydratedAt = 0;
+var favoritesHydratePromise = null;
+var FAVORITES_CACHE_TTL_MS = 2 * 60 * 1e3;
+function resetFavoritesState() {
+  favoritesPlaylistIdCache = null;
+  favoritesLookupDone = false;
+  favoritedIdsCache.clear();
+  favoritesHydratedAt = 0;
+  favoritesHydratePromise = null;
+}
+function isFavoritesPlaylistItem(item) {
+  const attr = item?.attributes || {};
+  if (Array.isArray(attr.tags) && attr.tags.includes("favorited")) {
+    return true;
+  }
+  if (attr.isFavorites === true) {
+    return true;
+  }
+  const name = String(attr.name || "").trim();
+  if (attr.canEdit === false && !attr.curatorName && /^(Favorite Songs|Favourite Songs|喜爱歌曲|喜好歌曲|喜愛歌曲|お気に入りの曲|즐겨찾는 노래)$/i.test(
+    name
+  )) {
+    return true;
+  }
+  return false;
+}
+function recordFavoritedTrackItem(item) {
+  if (!item) return;
+  const id = String(item.id || "").trim();
+  if (id) favoritedIdsCache.add(id);
+  const catalogId = item.attributes?.playParams?.catalogId || item.relationships?.catalog?.data?.[0]?.id;
+  if (catalogId) {
+    favoritedIdsCache.add(String(catalogId));
+  }
+}
+async function getFavoritesPlaylistId(lang) {
+  if (favoritesPlaylistIdCache) return favoritesPlaylistIdCache;
+  if (favoritesLookupDone) return null;
+  try {
+    const json = await requestApi(
+      `/me/library/playlists?limit=100&extend[library-playlists]=tags&l=${lang}`,
+      { requireAuth: true }
+    );
+    const items = Array.isArray(json?.data) ? json.data : [];
+    const fav = items.find(isFavoritesPlaylistItem);
+    favoritesLookupDone = true;
+    if (fav?.id) {
+      favoritesPlaylistIdCache = String(fav.id);
+      return favoritesPlaylistIdCache;
+    }
+  } catch {
+  }
+  return null;
+}
+async function fetchFavoritesPlaylistTracks(favId, lang, offset = 0, maxPages = 5) {
+  const rawItems = [];
+  let nextPath = `/me/library/playlists/${encodeURIComponent(favId)}/tracks?limit=100&offset=${offset}&l=${lang}`;
+  let pages = 0;
+  while (nextPath && pages < maxPages) {
+    pages++;
+    const cleanPath = nextPath.replace(/^\/v1/, "");
+    const pageJson = await requestApi(cleanPath, { requireAuth: true }).catch(() => null);
+    if (!pageJson || !Array.isArray(pageJson.data)) {
+      nextPath = void 0;
+      break;
+    }
+    for (const item of pageJson.data) {
+      recordFavoritedTrackItem(item);
+      rawItems.push(item);
+    }
+    nextPath = typeof pageJson.next === "string" && pageJson.next ? pageJson.next : void 0;
+  }
+  if (offset === 0 && rawItems.length > 0) {
+    favoritesHydratedAt = Date.now();
+  }
+  return {
+    rawItems,
+    hasMore: Boolean(nextPath)
+  };
+}
+async function ensureFavoritesHydrated(lang) {
+  if (favoritesHydratedAt > 0 && Date.now() - favoritesHydratedAt < FAVORITES_CACHE_TTL_MS) {
+    return;
+  }
+  if (favoritesHydratePromise) {
+    return favoritesHydratePromise;
+  }
+  favoritesHydratePromise = (async () => {
+    try {
+      const favId = await getFavoritesPlaylistId(lang);
+      if (favId) {
+        await fetchFavoritesPlaylistTracks(favId, lang, 0, 5);
+      }
+      favoritesHydratedAt = Date.now();
+    } catch {
+    } finally {
+      favoritesHydratePromise = null;
+    }
+  })();
+  return favoritesHydratePromise;
+}
 async function playlists() {
   const token = await getStoredMediaUserToken();
   if (!token) return [];
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const json = await requestApi(`/me/library/playlists?limit=100&l=${lang}`, {
-    requireAuth: true
-  });
-  const items = json.data || [];
-  return items.map(mapPlaylist);
+  const json = await requestApi(
+    `/me/library/playlists?limit=100&extend[library-playlists]=tags&l=${lang}`,
+    { requireAuth: true }
+  );
+  const items = Array.isArray(json.data) ? json.data : [];
+  const fav = items.find(isFavoritesPlaylistItem);
+  if (fav?.id) {
+    favoritesPlaylistIdCache = String(fav.id);
+    favoritesLookupDone = true;
+  }
+  return items.filter((item) => !isFavoritesPlaylistItem(item)).map(mapPlaylist);
 }
 async function playlist(options) {
   const { id } = options || {};
@@ -1284,6 +1394,23 @@ async function addToPlaylist(options) {
 async function liked(options) {
   const offset = Math.max(0, Number(options?.offset) || 0);
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  const favId = await getFavoritesPlaylistId(lang);
+  if (favId) {
+    if (offset === 0) {
+      favoritedIdsCache.clear();
+    }
+    const maxPages = offset === 0 ? 5 : 1;
+    const { rawItems, hasMore } = await fetchFavoritesPlaylistTracks(
+      favId,
+      lang,
+      offset,
+      maxPages
+    );
+    return {
+      tracks: rawItems.map(mapTrack),
+      more: hasMore
+    };
+  }
   const json = await requestApi(
     `/me/library/songs?limit=100&offset=${offset}&l=${lang}`,
     { requireAuth: true }
@@ -1311,28 +1438,65 @@ async function like(options) {
   const id = String(options?.id || "").trim();
   if (!id) return;
   const on = Boolean(options?.on);
+  const isLibId = id.startsWith("i.");
+  const resType = isLibId ? "library-songs" : "songs";
+  const meta = trackMetaCache.get(id);
+  let updatedFavorites = false;
+  try {
+    await requestApi(
+      `/me/favorites?ids[${resType}]=${encodeURIComponent(id)}&platform=web`,
+      {
+        method: on ? "POST" : "DELETE",
+        requireAuth: true
+      }
+    );
+    updatedFavorites = true;
+  } catch (err) {
+    if (err?.code === "signIn") throw err;
+  }
+  const ratingPath = isLibId ? `/me/ratings/library-songs/${encodeURIComponent(id)}` : `/me/ratings/songs/${encodeURIComponent(id)}`;
   if (on) {
-    if (!id.startsWith("i.")) {
-      await requestApi(`/me/library?ids[songs]=${encodeURIComponent(id)}`, {
-        method: "POST",
+    if (!updatedFavorites) {
+      if (!isLibId) {
+        await requestApi(`/me/library?ids[songs]=${encodeURIComponent(id)}`, {
+          method: "POST",
+          requireAuth: true
+        }).catch(() => {
+        });
+      }
+      await requestApi(ratingPath, {
+        method: "PUT",
+        requireAuth: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "rating", attributes: { value: 1 } })
+      });
+    } else {
+      requestApi(ratingPath, {
+        method: "PUT",
+        requireAuth: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "rating", attributes: { value: 1 } })
+      }).catch(() => {
+      });
+    }
+    favoritedIdsCache.add(id);
+    if (meta?.catalogId) favoritedIdsCache.add(meta.catalogId);
+  } else {
+    if (!updatedFavorites) {
+      await requestApi(ratingPath, {
+        method: "DELETE",
+        requireAuth: true
+      }).catch(() => {
+      });
+    } else {
+      requestApi(ratingPath, {
+        method: "DELETE",
         requireAuth: true
       }).catch(() => {
       });
     }
-    const ratingPath = id.startsWith("i.") ? `/me/ratings/library-songs/${encodeURIComponent(id)}` : `/me/ratings/songs/${encodeURIComponent(id)}`;
-    await requestApi(ratingPath, {
-      method: "PUT",
-      requireAuth: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "rating", attributes: { value: 1 } })
-    });
-  } else {
-    const ratingPath = id.startsWith("i.") ? `/me/ratings/library-songs/${encodeURIComponent(id)}` : `/me/ratings/songs/${encodeURIComponent(id)}`;
-    await requestApi(ratingPath, {
-      method: "DELETE",
-      requireAuth: true
-    }).catch(() => {
-    });
+    favoritedIdsCache.delete(id);
+    if (meta?.catalogId) favoritedIdsCache.delete(meta.catalogId);
   }
 }
 async function isLiked(options) {
@@ -1342,16 +1506,45 @@ async function isLiked(options) {
   if (ids.length === 0) return out;
   const token = await getStoredMediaUserToken();
   if (!token) return out;
-  const catalogIds = ids.filter((x) => !x.startsWith("i."));
-  if (catalogIds.length > 0) {
+  const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  await ensureFavoritesHydrated(lang);
+  const unresolvedLibIds = [];
+  const unresolvedCatalogIds = [];
+  for (const id of ids) {
+    const meta = trackMetaCache.get(id);
+    if (favoritedIdsCache.has(id) || meta?.catalogId && favoritedIdsCache.has(meta.catalogId) || meta?.id && favoritedIdsCache.has(meta.id)) {
+      out[id] = true;
+    } else if (id.startsWith("i.")) {
+      unresolvedLibIds.push(id);
+    } else {
+      unresolvedCatalogIds.push(id);
+    }
+  }
+  if (unresolvedLibIds.length > 0) {
     try {
       const json = await requestApi(
-        `/me/ratings/songs?ids=${catalogIds.map(encodeURIComponent).join(",")}`,
+        `/me/ratings/library-songs?ids=${unresolvedLibIds.map(encodeURIComponent).join(",")}`,
         { requireAuth: true }
       );
       for (const r of json.data || []) {
         if (r?.id && r?.attributes?.value === 1) {
           out[String(r.id)] = true;
+          favoritedIdsCache.add(String(r.id));
+        }
+      }
+    } catch {
+    }
+  }
+  if (unresolvedCatalogIds.length > 0) {
+    try {
+      const json = await requestApi(
+        `/me/ratings/songs?ids=${unresolvedCatalogIds.map(encodeURIComponent).join(",")}`,
+        { requireAuth: true }
+      );
+      for (const r of json.data || []) {
+        if (r?.id && r?.attributes?.value === 1) {
+          out[String(r.id)] = true;
+          favoritedIdsCache.add(String(r.id));
         }
       }
     } catch {
@@ -1837,6 +2030,7 @@ async function signIn() {
 }
 async function signOut() {
   resetRemoteSession();
+  resetFavoritesState();
   if (typeof host !== "undefined" && host.storage) {
     try {
       await host.storage.remove("auth");
