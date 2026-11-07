@@ -1406,47 +1406,195 @@ function collectResourceIntoBuckets(rawRef, buckets, resourcesMap, depth = 0) {
     }
   }
 }
-function bucketsToSection(title, buckets, morePage, subtitle) {
-  const total = buckets.tracks.length + buckets.albums.length + buckets.artists.length + buckets.playlists.length + buckets.stations.length + buckets.links.length;
-  if (total === 0) return null;
-  const sec = { title };
-  if (subtitle) sec.subtitle = subtitle;
-  if (morePage) sec.morePage = morePage;
+function bucketsToSplitEntries(title, buckets, morePage, subtitle) {
+  const groups = [];
   if (buckets.tracks.length > 0) {
-    sec.tracks = buckets.tracks;
-    if (total === buckets.tracks.length) {
-      sec.kind = "tracks";
-      sec.items = buckets.tracks;
-    }
+    groups.push({
+      kind: "tracks",
+      label: tr("Songs"),
+      count: buckets.tracks.length,
+      build: (secTitle, mp, sub) => ({
+        title: secTitle,
+        ...sub ? { subtitle: sub } : {},
+        ...mp ? { morePage: mp } : {},
+        kind: "tracks",
+        tracks: buckets.tracks,
+        items: buckets.tracks
+      })
+    });
   }
   if (buckets.albums.length > 0) {
-    sec.albums = buckets.albums;
-    if (total === buckets.albums.length) {
-      sec.kind = "albums";
-      sec.items = buckets.albums;
-    }
+    groups.push({
+      kind: "albums",
+      label: tr("Albums"),
+      count: buckets.albums.length,
+      build: (secTitle, mp, sub) => ({
+        title: secTitle,
+        ...sub ? { subtitle: sub } : {},
+        ...mp ? { morePage: mp } : {},
+        kind: "albums",
+        albums: buckets.albums,
+        items: buckets.albums
+      })
+    });
   }
   if (buckets.artists.length > 0) {
-    sec.artists = buckets.artists;
-    if (total === buckets.artists.length) {
-      sec.kind = "artists";
-      sec.items = buckets.artists;
-    }
+    groups.push({
+      kind: "artists",
+      label: tr("Artists"),
+      count: buckets.artists.length,
+      build: (secTitle, mp, sub) => ({
+        title: secTitle,
+        ...sub ? { subtitle: sub } : {},
+        ...mp ? { morePage: mp } : {},
+        kind: "artists",
+        artists: buckets.artists,
+        items: buckets.artists
+      })
+    });
   }
   if (buckets.playlists.length > 0) {
-    sec.playlists = buckets.playlists;
-    if (total === buckets.playlists.length) {
-      sec.kind = "playlists";
-      sec.items = buckets.playlists;
-    }
+    groups.push({
+      kind: "playlists",
+      label: tr("Playlists"),
+      count: buckets.playlists.length,
+      build: (secTitle, mp, sub) => ({
+        title: secTitle,
+        ...sub ? { subtitle: sub } : {},
+        ...mp ? { morePage: mp } : {},
+        kind: "playlists",
+        playlists: buckets.playlists,
+        items: buckets.playlists
+      })
+    });
   }
   if (buckets.stations.length > 0) {
-    sec.stations = buckets.stations;
+    groups.push({
+      kind: "stations",
+      label: tr("Stations"),
+      count: buckets.stations.length,
+      build: (secTitle, mp, sub) => ({
+        title: secTitle,
+        ...sub ? { subtitle: sub } : {},
+        ...mp ? { morePage: mp } : {},
+        stations: buckets.stations
+      })
+    });
   }
   if (buckets.links.length > 0) {
-    sec.links = buckets.links;
+    groups.push({
+      kind: "links",
+      label: tr("Browse"),
+      count: buckets.links.length,
+      build: (secTitle, mp, sub) => ({
+        title: secTitle,
+        ...sub ? { subtitle: sub } : {},
+        ...mp ? { morePage: mp } : {},
+        links: buckets.links
+      })
+    });
   }
-  return sec;
+  if (groups.length === 0) return [];
+  if (groups.length === 1) {
+    const g = groups[0];
+    return [
+      {
+        section: g.build(title, morePage, subtitle),
+        isOverflow: false,
+        itemKind: g.kind,
+        count: g.count
+      }
+    ];
+  }
+  groups.sort((a, b) => b.count - a.count);
+  return groups.map((g, idx) => {
+    const isPrimary = idx === 0;
+    const secTitle = isPrimary ? title : title ? `${title} \xB7 ${g.label}` : g.label;
+    return {
+      section: g.build(secTitle, isPrimary ? morePage : void 0, isPrimary ? subtitle : void 0),
+      isOverflow: !isPrimary,
+      itemKind: g.kind,
+      count: g.count
+    };
+  });
+}
+function consolidateSplitEntries(entries) {
+  const getArrayForKind = (sec, kind) => {
+    switch (kind) {
+      case "tracks":
+        return sec.tracks;
+      case "albums":
+        return sec.albums;
+      case "artists":
+        return sec.artists;
+      case "playlists":
+        return sec.playlists;
+      case "stations":
+        return sec.stations;
+      case "links":
+        return sec.links;
+    }
+  };
+  const setArrayForKind = (sec, kind, arr) => {
+    switch (kind) {
+      case "tracks":
+        sec.tracks = arr;
+        sec.items = arr;
+        break;
+      case "albums":
+        sec.albums = arr;
+        sec.items = arr;
+        break;
+      case "artists":
+        sec.artists = arr;
+        sec.items = arr;
+        break;
+      case "playlists":
+        sec.playlists = arr;
+        sec.items = arr;
+        break;
+      case "stations":
+        sec.stations = arr;
+        break;
+      case "links":
+        sec.links = arr;
+        break;
+    }
+  };
+  const preferredKeywords = {
+    playlists: /made for you|为你推荐|playlist|歌单/i,
+    stations: /station|radio|广播|电台/i,
+    albums: /new release|新发行|album|专辑/i,
+    tracks: /song|track|歌曲/i,
+    artists: /artist|艺人/i,
+    links: /mood|genre|browse|浏览/i
+  };
+  const absorbed = /* @__PURE__ */ new Set();
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!e.isOverflow || e.count !== 1) continue;
+    const srcItems = getArrayForKind(e.section, e.itemKind);
+    if (!srcItems || srcItems.length === 0) continue;
+    const candidates = entries.filter(
+      (cand, idx) => idx !== i && !absorbed.has(idx) && !cand.isOverflow && cand.itemKind === e.itemKind
+    );
+    if (candidates.length === 0) continue;
+    const target = candidates.find((c) => preferredKeywords[e.itemKind].test(c.section.title || "")) || candidates[0];
+    const dstItems = getArrayForKind(target.section, e.itemKind) || [];
+    const keyOf = (obj) => String(obj?.id || obj?.page || "");
+    const existingKeys = new Set(dstItems.map(keyOf));
+    const toPrepend = srcItems.filter((item) => {
+      const k = keyOf(item);
+      return k && !existingKeys.has(k);
+    });
+    setArrayForKind(target.section, e.itemKind, [...toPrepend, ...dstItems]);
+    target.count = dstItems.length + toPrepend.length;
+    absorbed.add(i);
+  }
+  return entries.filter((_, idx) => !absorbed.has(idx)).map((e) => e.section);
+}
+function bucketsToSections(title, buckets, morePage, subtitle) {
+  return bucketsToSplitEntries(title, buckets, morePage, subtitle).map((e) => e.section);
 }
 function resolveRecommendationTitle(rec, resourcesMap) {
   const attr = rec?.attributes || {};
@@ -1473,7 +1621,7 @@ function resolveRecommendationTitle(rec, resourcesMap) {
 function parseRecommendationsToSections(json, allowMorePage = true) {
   const dataRefs = Array.isArray(json?.data) ? json.data : [];
   const resourcesMap = json?.resources;
-  const sections = [];
+  const entries = [];
   for (const rawRef of dataRefs) {
     const rec = resolveResourceRef(rawRef, resourcesMap);
     if (!rec) continue;
@@ -1487,12 +1635,9 @@ function parseRecommendationsToSections(json, allowMorePage = true) {
     }
     const { title, subtitle } = resolveRecommendationTitle(rec, resourcesMap);
     const morePage = allowMorePage && rec.id && rec.attributes?.hasSeeAll === true ? `reco:${rec.id}` : void 0;
-    const sec = bucketsToSection(title, buckets, morePage, subtitle);
-    if (sec) {
-      sections.push(sec);
-    }
+    entries.push(...bucketsToSplitEntries(title, buckets, morePage, subtitle));
   }
-  return sections;
+  return consolidateSplitEntries(entries);
 }
 async function fetchPersonalizedHome(sf, lang) {
   const tz = encodeURIComponent(getLocalTimezoneOffset());
@@ -1615,10 +1760,7 @@ function parseEditorialGroupingBrowse(json, fallbackTitle) {
     if (!shelfTitle && buckets.links.length === 0 && buckets.albums.length === 0 && buckets.playlists.length === 0) {
       continue;
     }
-    const sec = bucketsToSection(shelfTitle || tr("Featured"), buckets, morePage);
-    if (sec) {
-      sections.push(sec);
-    }
+    sections.push(...bucketsToSections(shelfTitle || tr("Featured"), buckets, morePage));
   }
   return {
     title: pageTitle,
@@ -1638,8 +1780,10 @@ async function buildRecommendationSeeAllBrowse(recId, lang) {
       { requireAuth: true }
     );
   }
+  const rootRec = resolveResourceRef(json?.data?.[0], json?.resources);
+  const resolvedTitle = rootRec ? resolveRecommendationTitle(rootRec, json?.resources).title : "";
   const sections = parseRecommendationsToSections(json, false);
-  const title = sections[0]?.title || tr("Recommended For You");
+  const title = resolvedTitle || sections[0]?.title || tr("Recommended For You");
   if (sections.length === 1) {
     sections[0] = { ...sections[0], title: "" };
   }
@@ -1719,11 +1863,14 @@ async function buildRoomBrowse(sf, roomId, lang) {
       }
     }
   }
-  const sec = bucketsToSection("", buckets);
+  const roomSections = bucketsToSections("", buckets);
+  if (roomSections.length === 1) {
+    roomSections[0] = { ...roomSections[0], title: "" };
+  }
   return {
     title,
     description: desc,
-    sections: sec ? [sec] : []
+    sections: roomSections
   };
 }
 async function home() {
@@ -1757,30 +1904,20 @@ async function buildMyPageBrowse(sf, lang) {
   ]);
   const sections = [];
   if (Array.isArray(heavyJson?.data) && heavyJson.data.length > 0) {
-    const heavyAlbums = heavyJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
-    const heavyPlaylists = heavyJson.data.filter(
+    const heavyBuckets = createSectionBuckets();
+    heavyBuckets.albums = heavyJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
+    heavyBuckets.playlists = heavyJson.data.filter(
       (x) => String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
     ).map(mapPlaylist);
-    if (heavyAlbums.length > 0 || heavyPlaylists.length > 0) {
-      sections.push({
-        title: tr("Heavy Rotation"),
-        ...heavyAlbums.length > 0 ? { albums: heavyAlbums } : {},
-        ...heavyPlaylists.length > 0 ? { playlists: heavyPlaylists } : {}
-      });
-    }
+    sections.push(...bucketsToSections(tr("Heavy Rotation"), heavyBuckets));
   }
   if (Array.isArray(recentAddedJson?.data) && recentAddedJson.data.length > 0) {
-    const addedAlbums = recentAddedJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
-    const addedPlaylists = recentAddedJson.data.filter(
+    const addedBuckets = createSectionBuckets();
+    addedBuckets.albums = recentAddedJson.data.filter((x) => String(x?.type || "").includes("album")).map(mapAlbum);
+    addedBuckets.playlists = recentAddedJson.data.filter(
       (x) => String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
     ).map(mapPlaylist);
-    if (addedAlbums.length > 0 || addedPlaylists.length > 0) {
-      sections.push({
-        title: tr("Recently Added"),
-        ...addedAlbums.length > 0 ? { albums: addedAlbums } : {},
-        ...addedPlaylists.length > 0 ? { playlists: addedPlaylists } : {}
-      });
-    }
+    sections.push(...bucketsToSections(tr("Recently Added"), addedBuckets));
   }
   const myPlaylists = allPlaylists.filter((p) => p.mine);
   const displayPlaylists = myPlaylists.length > 0 ? myPlaylists : allPlaylists;

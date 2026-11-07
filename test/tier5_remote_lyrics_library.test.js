@@ -1302,4 +1302,106 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assertIncludes(myPage.description, "Lossless (24-bit/48 kHz)");
     assert(myPage.subtitle !== myPage.description, "My Page subtitle and description must not duplicate");
   });
+
+  test("5.4.15: mixed Top Picks shelf splits into single-kind sections and folds 1-item orphans without untitled blank rows", async () => {
+    await host.storage.set("auth", {
+      mediaUserToken: "sub_tok_top_picks",
+      storefront: "jp",
+      profileVersion: 2,
+      account: { id: "inkorange", name: "ZichenWu", page: "library" },
+    });
+    await host.storage.set("developer_token", "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig");
+    await host.storage.set("developer_token_exp", Date.now() + 10_000_000);
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            { id: "rec-top-picks", type: "personal-recommendation" },
+            { id: "rec-made", type: "personal-recommendation" },
+          ],
+          resources: {
+            "personal-recommendation": {
+              "rec-top-picks": {
+                id: "rec-top-picks",
+                type: "personal-recommendation",
+                attributes: { title: { stringForDisplay: "Top Picks for You" } },
+                relationships: {
+                  contents: {
+                    data: [
+                      { id: "alb-ras", type: "albums" },
+                      { id: "alb-porter", type: "albums" },
+                      { id: "pl.newmusic", type: "playlists" },
+                      { id: "ra.1", type: "stations" },
+                      { id: "ra.2", type: "stations" },
+                      { id: "ra.3", type: "stations" },
+                      { id: "ra.4", type: "stations" },
+                      { id: "ra.5", type: "stations" },
+                    ],
+                  },
+                },
+              },
+              "rec-made": {
+                id: "rec-made",
+                type: "personal-recommendation",
+                attributes: { title: { stringForDisplay: "Made for You" } },
+                relationships: {
+                  contents: {
+                    data: [
+                      { id: "pl.favmix", type: "playlists" },
+                      { id: "pl.chillmix", type: "playlists" },
+                    ],
+                  },
+                },
+              },
+            },
+            albums: {
+              "alb-ras": { id: "alb-ras", type: "albums", attributes: { name: "I AM WHO I AM - Single", artistName: "RAISE A SUILEN" } },
+              "alb-porter": { id: "alb-porter", type: "albums", attributes: { name: "SMILE! :D plus+", artistName: "Porter Robinson" } },
+            },
+            playlists: {
+              "pl.newmusic": { id: "pl.newmusic", type: "playlists", attributes: { name: "New Music", curatorName: "Apple Music for ZichenWu" } },
+              "pl.favmix": { id: "pl.favmix", type: "playlists", attributes: { name: "Favorites Mix", curatorName: "Apple Music for ZichenWu" } },
+              "pl.chillmix": { id: "pl.chillmix", type: "playlists", attributes: { name: "Chill Mix", curatorName: "Apple Music for ZichenWu" } },
+            },
+            stations: {
+              "ra.1": { id: "ra.1", type: "stations", attributes: { name: "Station 1", isLive: false } },
+              "ra.2": { id: "ra.2", type: "stations", attributes: { name: "Station 2", isLive: false } },
+              "ra.3": { id: "ra.3", type: "stations", attributes: { name: "Discovery Station", isLive: false } },
+              "ra.4": { id: "ra.4", type: "stations", attributes: { name: "ZichenWu's Station", isLive: false } },
+              "ra.5": { id: "ra.5", type: "stations", attributes: { name: "Mood Station", isLive: false } },
+            },
+          },
+        }),
+        { status: 200 }
+      );
+
+    const homeBrowse = await plugin.home();
+    // Every section must contain only ONE media array so MyGo Music never renders untitled broken rows
+    for (const sec of homeBrowse.sections) {
+      const populatedArrays = [
+        sec.tracks?.length,
+        sec.albums?.length,
+        sec.artists?.length,
+        sec.playlists?.length,
+        sec.stations?.length,
+        sec.links?.length,
+      ].filter((n) => (n || 0) > 0);
+      assertEquals(populatedArrays.length, 1, `Section '${sec.title}' must be single-kind`);
+    }
+
+    // Largest group (5 stations) leads under 'Top Picks for You'
+    assertEquals(homeBrowse.sections[0].title, "Top Picks for You");
+    assertEquals(homeBrowse.sections[0].stations.length, 5);
+
+    // 2 albums get their own explicit section title 'Top Picks for You · Albums'
+    assertEquals(homeBrowse.sections[1].title, "Top Picks for You · Albums");
+    assertEquals(homeBrowse.sections[1].albums.length, 2);
+
+    // 1-item playlist orphan ('New Music') is folded into 'Made for You' instead of creating an 80%-blank 1-card row
+    const madeSec = homeBrowse.sections.find((s) => s.title === "Made for You");
+    assertTruthy(madeSec);
+    assertEquals(madeSec.playlists.length, 3);
+    assertEquals(madeSec.playlists[0].id, "pl.newmusic");
+  });
 });
