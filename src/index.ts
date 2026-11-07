@@ -571,6 +571,9 @@ export async function suggest(options: { query: string }): Promise<string[]> {
     if (!text) return;
     const clean = text.trim();
     if (!clean) return;
+    // Do not include candidate if it is identical to the user's current query
+    // (MyGo Music already renders 'Search for "${query}"' as the top action)
+    if (clean.toLowerCase() === query.toLowerCase()) return;
     const key = clean.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
@@ -1588,7 +1591,7 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
     throw fail("signIn", tr("Sign in to Apple Music first"));
   }
 
-  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks, liveQuality] =
+  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks] =
     await Promise.all([
       account().catch(() => null),
       requestApi(`/me/history/heavy-rotation?limit=16&include=catalog&l=${lang}`, { requireAuth: true }).catch(
@@ -1599,10 +1602,20 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
       ),
       playlists().catch(() => [] as Playlist[]),
       recent().catch(() => [] as Track[]),
-      readMusicAppAudioQuality().catch(() => null),
     ]);
 
   const sections: Section[] = [];
+
+  const myPlaylists = allPlaylists.filter((p) => p.mine);
+  const displayPlaylists = myPlaylists.length > 0 ? myPlaylists : allPlaylists;
+  if (displayPlaylists.length > 0) {
+    sections.push({
+      title: myPlaylists.length > 0 ? tr("My Playlists") : tr("Playlists"),
+      kind: "playlists",
+      playlists: displayPlaylists,
+      items: displayPlaylists,
+    });
+  }
 
   if (Array.isArray(heavyJson?.data) && heavyJson.data.length > 0) {
     const heavyBuckets = createSectionBuckets();
@@ -1632,17 +1645,6 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
     sections.push(...bucketsToSections(tr("Recently Added"), addedBuckets));
   }
 
-  const myPlaylists = allPlaylists.filter((p) => p.mine);
-  const displayPlaylists = myPlaylists.length > 0 ? myPlaylists : allPlaylists;
-  if (displayPlaylists.length > 0) {
-    sections.push({
-      title: myPlaylists.length > 0 ? tr("My Playlists") : tr("Playlists"),
-      kind: "playlists",
-      playlists: displayPlaylists,
-      items: displayPlaylists,
-    });
-  }
-
   if (recentTracks.length > 0) {
     const previewTracks = recentTracks.slice(0, 10);
     sections.push({
@@ -1666,6 +1668,51 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
     sections,
   };
 }
+
+const APPLE_MUSIC_LIVE_STATIONS: Station[] = [
+  {
+    id: "ra.978194965",
+    name: "Apple Music 1",
+    description: "Live 24/7 • The new music that matters.",
+    imageUrl:
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/f2/52/f6/f252f662-44e1-8860-73e8-5dab557d3e52/35d45158-76c3-4b9a-9a77-9a44317c1d79.png/600x600sr.jpg",
+  },
+  {
+    id: "ra.1498155548",
+    name: "Apple Music Hits",
+    description: "The songs you know and love from the '80s, '90s, and 2000s.",
+    imageUrl:
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/e5/a0/0d/e5a00d47-69b4-a50b-3652-32b00512803b/388fbf1e-627c-4731-90a6-c95691456a7d.png/600x600sr.jpg",
+  },
+  {
+    id: "ra.1498157166",
+    name: "Apple Music Country",
+    description: "Where country music lives.",
+    imageUrl:
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/9d/1c/37/9d1c3769-6f7a-ac49-93e5-ca030ef7a8b4/f5383508-ea24-4f51-b0fe-25ba47e9b05c.png/600x600sr.jpg",
+  },
+  {
+    id: "ra.1740613864",
+    name: "Apple Music Club",
+    description: "The biggest dance and electronic tracks worldwide.",
+    imageUrl:
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/94/7d/d9/947dd957-8eaa-330b-fc68-07758369b775/88636ba4-0466-4e5a-8b1b-60aebc87040e.png/600x600sr.jpg",
+  },
+  {
+    id: "ra.1740614260",
+    name: "Apple Music Chill",
+    description: "Laid-back beats, acoustic vibes, and ambient sounds.",
+    imageUrl:
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/b6/ec/73/b6ec73bd-efae-42d8-bf12-aa59c258d4a7/17b4a2e5-e45f-4bf2-a3c3-37651a24d5ba.png/600x600sr.jpg",
+  },
+  {
+    id: "ra.1740613859",
+    name: "Apple Music Música Uno",
+    description: "Lo mejor de los ritmos latinos.",
+    imageUrl:
+      "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/70/a9/6b/70a96bf1-965e-466d-a7b1-21d1d860d5bf/66b04870-83f0-4fc7-bf99-eebdd94ec32d.png/600x600sr.jpg",
+  },
+];
 
 async function buildAppleBrowse(sf: string, lang: string, pageTitle = tr("Browse")): Promise<Browse> {
   // Method 1: Try editorial groupings amp-api endpoint (standard Apple Music browse endpoint)
@@ -1713,16 +1760,22 @@ async function buildAppleBrowse(sf: string, lang: string, pageTitle = tr("Browse
         const sections: Section[] = [];
 
         for (const rawSec of rawSections) {
-          const title = rawSec.header?.item?.titleLink?.title || rawSec.header?.title?.text || "";
+          let title = rawSec.header?.item?.titleLink?.title || rawSec.header?.title?.text || "";
+          if (!title && sections.length === 0) {
+            title = tr("Featured");
+          }
+          if (!title) continue;
+
           const moreUrl = rawSec.header?.item?.titleLink?.url;
           const roomMatch = typeof moreUrl === "string" ? moreUrl.match(/\/room\/([a-zA-Z0-9._-]+)/) : null;
           const morePage = roomMatch ? `room:${roomMatch[1]}` : undefined;
 
-          const tracks: Track[] = [];
           const albums: Album[] = [];
           const playlists: Playlist[] = [];
 
-          for (const item of rawSec.items || []) {
+          // Cap the hero section to 6 items; other sections up to 20
+          const rawItems = (rawSec.items || []).slice(0, sections.length === 0 ? 6 : 20);
+          for (const item of rawItems) {
             const kind = item.contentDescriptor?.kind;
             const id = String(item.contentDescriptor?.identifiers?.storeAdamID || item.id || "");
             const name = String(item.title || item.titleLinks?.[0]?.title || "");
@@ -1732,18 +1785,12 @@ async function buildAppleBrowse(sf: string, lang: string, pageTitle = tr("Browse
             if (!id || !name) continue;
 
             if (kind === "song") {
-              const alb: Album = {
-                id: "",
-                name: "",
+              // In Browse, songs are represented cleanly as single/album cards rather than raw tracklist tables
+              albums.push({
+                id,
+                name: `${name} - ${artistName}`,
                 artists: [{ id: "", name: artistName }],
                 imageUrl,
-              };
-              tracks.push({
-                id,
-                name,
-                artists: [{ id: "", name: artistName }],
-                album: alb,
-                duration: 0,
               });
             } else if (kind === "playlist") {
               playlists.push({
@@ -1762,9 +1809,7 @@ async function buildAppleBrowse(sf: string, lang: string, pageTitle = tr("Browse
             }
           }
 
-          if (tracks.length > 0) {
-            sections.push({ title, kind: "tracks", tracks, items: tracks, morePage });
-          } else if (playlists.length > 0 && albums.length === 0) {
+          if (playlists.length > 0 && albums.length === 0) {
             sections.push({ title, kind: "playlists", playlists, items: playlists, morePage });
           } else if (albums.length > 0) {
             sections.push({ title, kind: "albums", albums, items: albums, morePage });
@@ -2283,11 +2328,16 @@ export async function liked(options?: { offset?: number }): Promise<Page> {
   };
 }
 
-export async function savedAlbums(options?: { offset?: number }): Promise<AlbumList> {
+export async function savedAlbums(options?: { offset?: number; sort?: string }): Promise<AlbumList> {
   const offset = Math.max(0, Number(options?.offset) || 0);
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
+  const sortSetting =
+    (typeof host !== "undefined" && host.setting ? host.setting("savedAlbumsSort") : "") || "dateAdded";
+  const sortMode = options?.sort || sortSetting;
+  const sortParam = sortMode === "name" ? "name" : "-dateAdded";
+
   const json = await requestApi(
-    `/me/library/albums?limit=50&offset=${offset}&include=catalog&l=${lang}`,
+    `/me/library/albums?limit=50&offset=${offset}&sort=${sortParam}&include=catalog&l=${lang}`,
     { requireAuth: true }
   );
   const items = dedupeLibraryAlbums(json.data || [], lang);
@@ -2492,45 +2542,115 @@ export async function recent(): Promise<Track[]> {
 
 export async function stations(): Promise<Station[]> {
   const token = await getStoredMediaUserToken();
-  if (!token) return [];
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  try {
-    const json = await requestApi(
-      `/me/recent/radio-stations?limit=20&l=${encodeURIComponent(lang)}`,
-      { requireAuth: true }
-    );
-    const items: any[] = Array.isArray(json?.data) ? json.data : [];
-    return items
-      .filter((st) => st?.id && st?.attributes?.name && st?.attributes?.isLive !== true)
-      .map((st) => ({
-        id: String(st.id),
-        name: String(st.attributes.name),
-        description:
-          st.attributes.editorialNotes?.short ||
-          st.attributes.plainEditorialNotes?.short ||
-          undefined,
-        imageUrl: extractBestArtworkUrl(st, 600),
-      }));
-  } catch (err: any) {
-    if (err?.code === "signIn") throw err;
-    return [];
+  const sf = await getStorefront().catch(() => "jp");
+  const result: Station[] = [];
+  const seenIds = new Set<string>();
+
+  const add = (st: Station) => {
+    if (!st.id || seenIds.has(st.id)) return;
+    seenIds.add(st.id);
+    result.push(st);
+  };
+
+  // 1. Primary Apple Music Flagship Live Broadcast Radio Stations (Always available globally)
+  for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
+    add(liveSt);
   }
+
+  // 2. Fetch Latest Radio Shows & Editorial Broadcast Episodes from Apple Music Web Radio
+  try {
+    const radioUrl = `https://music.apple.com/${sf}/radio?l=${encodeURIComponent(lang)}`;
+    const res = await fetch(radioUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const scriptRegex = /<script type="application\/json" id="serialized-server-data"[^>]*>(.*?)<\/script>/s;
+      const m = html.match(scriptRegex);
+      if (m) {
+        const data = JSON.parse(m[1]);
+        const sections = data?.data?.[0]?.data?.sections || [];
+        const episodeSec = sections[1];
+        for (const it of episodeSec?.items || []) {
+          const id = String(it.id || "").replace(/^.*- (ra\.\d+).*$/, "$1");
+          const name = it.title || it.artistName;
+          const desc = it.subtitle || it.description;
+          const rawArt = it.artwork?.dictionary?.url;
+          if (id && name) {
+            add({
+              id,
+              name: String(name),
+              description: desc ? String(desc) : undefined,
+              imageUrl: formatArtworkUrl(rawArt, 600),
+            });
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 3. User's personalized & recent algorithmic stations (Discovery Station, Personal Station, etc.)
+  if (token) {
+    try {
+      const json = await requestApi(
+        `/me/recent/radio-stations?limit=20&l=${encodeURIComponent(lang)}`,
+        { requireAuth: true }
+      );
+      const items: any[] = Array.isArray(json?.data) ? json.data : [];
+      for (const st of items) {
+        if (!st?.id || !st?.attributes?.name) continue;
+        add({
+          id: String(st.id),
+          name: String(st.attributes.name),
+          description:
+            st.attributes.editorialNotes?.short ||
+            st.attributes.plainEditorialNotes?.short ||
+            undefined,
+          imageUrl: extractBestArtworkUrl(st, 600),
+        });
+      }
+    } catch {}
+  }
+
+  return result;
 }
 
 export async function stationNext(options: { id: string }): Promise<Track[]> {
   const id = String(options?.id || "").trim();
   if (!id) throw fail("unavailable", "Station id required");
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const json = await requestApi(
-    `/me/stations/next-tracks/${encodeURIComponent(id)}?limit=10&l=${encodeURIComponent(lang)}`,
-    {
-      method: "POST",
-      requireAuth: true,
-    }
-  );
-  const items: any[] = Array.isArray(json?.data) ? json.data : [];
+  let items: any[] = [];
+  try {
+    const json = await requestApi(
+      `/me/stations/next-tracks/${encodeURIComponent(id)}?limit=10&l=${encodeURIComponent(lang)}`,
+      {
+        method: "POST",
+        requireAuth: true,
+      }
+    );
+    items = Array.isArray(json?.data) ? json.data : [];
+  } catch {}
+
   if (items.length === 0) {
-    throw fail("unavailable", tr("This track is unavailable for streaming"));
+    // Live broadcast radio station fallback (e.g. Apple Music 1, Hits, Country)
+    const sf = await getStorefront().catch(() => "jp");
+    const liveMatch = APPLE_MUSIC_LIVE_STATIONS.find((s) => s.id === id);
+    const stationName = liveMatch?.name || "Apple Music Radio";
+    const cleanSlug = stationName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    return [
+      {
+        id,
+        name: stationName,
+        artists: [{ id: "", name: "Apple Music Radio" }],
+        album: { id: "", name: "Live Broadcast", imageUrl: liveMatch?.imageUrl },
+        duration: 0,
+        url: `https://music.apple.com/${sf}/station/${cleanSlug}/${encodeURIComponent(id)}`,
+      },
+    ];
   }
   return items.map(mapTrack);
 }

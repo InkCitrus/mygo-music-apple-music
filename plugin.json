@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -64,6 +64,11 @@
       "help": "Enter high (AAC 256kbps), lossless (ALAC 24-bit/48kHz), or hires (Hi-Res ALAC 24-bit/192kHz). Leave blank to follow Music.app."
     },
     {
+      "key": "savedAlbumsSort",
+      "label": "Saved Albums Sort Order (收藏专辑排序)",
+      "help": "Choose sort order: 'dateAdded' (Recently added first / 时间排序) or 'name' (Alphabetical / 首字母排序). Default: dateAdded."
+    },
+    {
       "key": "mediaUserToken",
       "label": "Media User Token (Optional)",
       "help": "Click Sign In to authenticate via browser window, or paste your media-user-token cookie from music.apple.com here.",
@@ -81,6 +86,11 @@
     },
     {
       "builtin": "stations"
+    },
+    {
+      "title": "Recently Played",
+      "page": "recent",
+      "icon": "calendar"
     },
     {
       "builtin": "liked"
