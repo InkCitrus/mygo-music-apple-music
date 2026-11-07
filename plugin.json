@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -75,22 +75,12 @@
       "builtin": "home"
     },
     {
-      "title": "New",
-      "page": "new",
+      "title": "Browse",
+      "page": "browse",
       "icon": "star"
     },
     {
       "builtin": "stations"
-    },
-    {
-      "title": "Charts",
-      "page": "charts",
-      "icon": "chart"
-    },
-    {
-      "title": "Recently Played",
-      "page": "recent",
-      "icon": "calendar"
     },
     {
       "builtin": "liked"

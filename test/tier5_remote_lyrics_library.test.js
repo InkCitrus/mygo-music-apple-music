@@ -1441,7 +1441,7 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
 
     const myPage = await plugin.browse({ page: "library" });
     assertEquals(myPage.subtitle, "@zichenwu");
-    assertIncludes(myPage.description, "Lossless (24-bit/48 kHz)");
+    assertEquals(myPage.description, "Apple Music (JP)");
     assert(myPage.subtitle !== myPage.description, "My Page subtitle and description must not duplicate");
   });
 

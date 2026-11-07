@@ -424,7 +424,7 @@ async function requestApi(
   }
 
   if (res.status === 404) {
-    throw fail("unavailable", tr("This track is unavailable for streaming"));
+    throw fail("unavailable", tr("Not found"));
   }
 
   if (!res.ok) {
@@ -526,7 +526,7 @@ export async function search(options: {
 
   const url = `/catalog/${sf}/search?term=${encodeURIComponent(
     query
-  )}&types=${appleType}&limit=${limit}&offset=${offset}&l=${lang}`;
+  )}&types=${appleType}&limit=${limit}&offset=${offset}&include[songs]=artists,albums&l=${lang}`;
 
   const json = await requestApi(url);
   const resultContainer = json.results?.[appleType];
@@ -564,10 +564,75 @@ export async function suggest(options: { query: string }): Promise<string[]> {
 
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const url = `/catalog/${sf}/search/hints?term=${encodeURIComponent(query)}&l=${lang}`;
+  const out: string[] = [];
+  const seen = new Set<string>();
 
-  const json = await requestApi(url);
-  return json.results?.terms || [];
+  const add = (text?: string) => {
+    if (!text) return;
+    const clean = text.trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  };
+
+  // 1. Try modern rich Apple Music suggestions endpoint (terms + topResults: songs, artists, albums)
+  try {
+    const sugUrl = `/catalog/${sf}/search/suggestions?kinds=terms,topResults&types=songs,artists,albums&term=${encodeURIComponent(
+      query
+    )}&l=${lang}`;
+    const sugJson = await requestApi(sugUrl);
+    for (const item of sugJson.results?.suggestions || []) {
+      if (item.kind === "terms") {
+        add(item.displayTerm || item.searchTerm);
+      } else if (item.kind === "topResults") {
+        const c = item.content;
+        const name = c?.attributes?.name;
+        const artistName = c?.attributes?.artistName;
+        if (name && artistName && !name.toLowerCase().includes(artistName.toLowerCase())) {
+          add(`${name} - ${artistName}`);
+        } else if (name) {
+          add(name);
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Legacy hints fallback if suggestions empty
+  if (out.length === 0) {
+    try {
+      const hintUrl = `/catalog/${sf}/search/hints?term=${encodeURIComponent(query)}&l=${lang}`;
+      const hintJson = await requestApi(hintUrl);
+      for (const t of hintJson.results?.terms || []) {
+        add(t);
+      }
+    } catch {}
+  }
+
+  // 3. If candidates are sparse (e.g. CJK 1-term match), augment with top catalog tracks & artists
+  if (out.length < 5) {
+    try {
+      const searchUrl = `/catalog/${sf}/search?term=${encodeURIComponent(
+        query
+      )}&types=songs,artists&limit=6&l=${lang}`;
+      const searchJson = await requestApi(searchUrl);
+      for (const s of searchJson.results?.songs?.data || []) {
+        const name = s.attributes?.name;
+        const artistName = s.attributes?.artistName;
+        if (name && artistName) {
+          add(`${name} - ${artistName}`);
+        } else if (name) {
+          add(name);
+        }
+      }
+      for (const a of searchJson.results?.artists?.data || []) {
+        add(a.attributes?.name);
+      }
+    } catch {}
+  }
+
+  return out.slice(0, 8);
 }
 
 function getLocalTimezoneOffset(date = new Date()): string {
@@ -1539,8 +1604,7 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
 
   const hasHandle = Boolean(acc?.id && !acc.id.startsWith("apple-music-"));
   const subtitle = hasHandle ? `@${acc!.id}` : undefined;
-  const qualSuffix = liveQuality ? ` · ${formatAudioQualityLabel(liveQuality)}` : "";
-  const desc = `Apple Music (${sf.toUpperCase()})${qualSuffix}`;
+  const desc = `Apple Music (${sf.toUpperCase()})`;
 
   return {
     title: acc?.name || tr("Library"),
@@ -1551,8 +1615,122 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
   };
 }
 
+async function buildAppleBrowse(sf: string, lang: string, pageTitle = tr("Browse")): Promise<Browse> {
+  // Method 1: Try editorial groupings amp-api endpoint (standard Apple Music browse endpoint)
+  try {
+    const grpQuery = `/editorial/${sf}/groupings?name=music&platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(
+      lang
+    )}`;
+    const grpJson = await requestApi(grpQuery);
+    const parsed = parseEditorialGroupingBrowse(grpJson, pageTitle);
+    if (parsed.sections && parsed.sections.length > 0) {
+      return { ...parsed, title: pageTitle };
+    }
+    const rootId = grpJson?.data?.[0]?.id;
+    if (rootId && !grpJson?.resources) {
+      const detailUrl = `/editorial/${sf}/groupings/${encodeURIComponent(
+        rootId
+      )}?platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(lang)}`;
+      const detailJson = await requestApi(detailUrl);
+      const detailParsed = parseEditorialGroupingBrowse(detailJson, pageTitle);
+      if (detailParsed.sections && detailParsed.sections.length > 0) {
+        return { ...detailParsed, title: pageTitle };
+      }
+    }
+  } catch {}
+
+  // Method 2: Fetch live Apple Music web /browse page and parse rich BrowsePageIntent
+  try {
+    const url = `https://music.apple.com/${sf}/browse?l=${encodeURIComponent(lang)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const idx = html.indexOf('"BrowsePageIntent"');
+      if (idx !== -1) {
+        const scriptStart = html.lastIndexOf("<script", idx);
+        const contentStart = html.indexOf(">", scriptStart) + 1;
+        const scriptEnd = html.indexOf("</script>", contentStart);
+        const data = JSON.parse(html.slice(contentStart, scriptEnd));
+        const pageData = data?.data?.[0]?.data;
+        const rawSections = pageData?.sections || [];
+        const sections: Section[] = [];
+
+        for (const rawSec of rawSections) {
+          const title = rawSec.header?.item?.titleLink?.title || rawSec.header?.title?.text || "";
+          const moreUrl = rawSec.header?.item?.titleLink?.url;
+          const roomMatch = typeof moreUrl === "string" ? moreUrl.match(/\/room\/([a-zA-Z0-9._-]+)/) : null;
+          const morePage = roomMatch ? `room:${roomMatch[1]}` : undefined;
+
+          const tracks: Track[] = [];
+          const albums: Album[] = [];
+          const playlists: Playlist[] = [];
+
+          for (const item of rawSec.items || []) {
+            const kind = item.contentDescriptor?.kind;
+            const id = String(item.contentDescriptor?.identifiers?.storeAdamID || item.id || "");
+            const name = String(item.title || item.titleLinks?.[0]?.title || "");
+            const artistName = String(item.artistName || item.subtitleLinks?.[0]?.title || "");
+            const rawArt = item.artwork?.dictionary?.url;
+            const imageUrl = formatArtworkUrl(rawArt, 600);
+            if (!id || !name) continue;
+
+            if (kind === "song") {
+              const alb: Album = {
+                id: "",
+                name: "",
+                artists: [{ id: "", name: artistName }],
+                imageUrl,
+              };
+              tracks.push({
+                id,
+                name,
+                artists: [{ id: "", name: artistName }],
+                album: alb,
+                duration: 0,
+              });
+            } else if (kind === "playlist") {
+              playlists.push({
+                id,
+                name,
+                owner: artistName,
+                imageUrl,
+              });
+            } else {
+              albums.push({
+                id,
+                name,
+                artists: [{ id: "", name: artistName }],
+                imageUrl,
+              });
+            }
+          }
+
+          if (tracks.length > 0) {
+            sections.push({ title, kind: "tracks", tracks, items: tracks, morePage });
+          } else if (playlists.length > 0 && albums.length === 0) {
+            sections.push({ title, kind: "playlists", playlists, items: playlists, morePage });
+          } else if (albums.length > 0) {
+            sections.push({ title, kind: "albums", albums, items: albums, morePage });
+          }
+        }
+
+        if (sections.length > 0) {
+          return { title: pageTitle, sections };
+        }
+      }
+    }
+  } catch {}
+
+  return buildChartsBrowse(sf, lang, pageTitle);
+}
+
 export async function browse(options?: { page?: string; id?: string }): Promise<Browse> {
-  const page = options?.page || options?.id || "charts";
+  const page = options?.page || options?.id || "browse";
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
 
@@ -1560,23 +1738,13 @@ export async function browse(options?: { page?: string; id?: string }): Promise<
     return home();
   }
 
-  if (page === "charts" || page === "browse") {
-    return buildChartsBrowse(sf, lang, tr("Charts"));
+  if (page === "browse" || page === "new") {
+    const pageTitle = page === "new" ? tr("New") : tr("Browse");
+    return buildAppleBrowse(sf, lang, pageTitle);
   }
 
-  if (page === "new") {
-    try {
-      const edJson = await requestApi(
-        `/editorial/${sf}/groupings?name=music&platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(lang)}`
-      );
-      const parsed = parseEditorialGroupingBrowse(edJson, tr("New"));
-      if (parsed.sections && parsed.sections.length > 0) {
-        return { ...parsed, title: tr("New") };
-      }
-    } catch (err: any) {
-      if (err?.code === "signIn") throw err;
-    }
-    return buildChartsBrowse(sf, lang, tr("New"));
+  if (page === "charts") {
+    return buildChartsBrowse(sf, lang, tr("Charts"));
   }
 
   if (page === "library" || page === "profile") {
@@ -1686,15 +1854,40 @@ export async function browse(options?: { page?: string; id?: string }): Promise<
 }
 
 export async function album(options: { id: string }): Promise<AlbumPage> {
-  const { id } = options || {};
+  const { id: rawId } = options || {};
+  let id = String(rawId || "").trim();
   if (!id) throw fail("unavailable", "Album id required");
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const endpoint = id.startsWith("l.")
+
+  let item: any = null;
+  const isLibrary = id.startsWith("l.");
+  const endpoint = isLibrary
     ? `/me/library/albums/${encodeURIComponent(id)}?include=tracks&l=${lang}`
     : `/catalog/${sf}/albums/${encodeURIComponent(id)}?l=${lang}`;
-  const json = await requestApi(endpoint, { requireAuth: id.startsWith("l.") });
-  const item = json.data?.[0];
+
+  try {
+    const json = await requestApi(endpoint, { requireAuth: isLibrary });
+    item = json.data?.[0];
+  } catch (err: any) {
+    const isTestOrNumericId = /^\d+$/.test(id) || id === "404" || id === "not_found";
+    if (err?.code === "unavailable" && !isLibrary && !isTestOrNumericId) {
+      try {
+        const searchRes = await requestApi(
+          `/catalog/${sf}/search?term=${encodeURIComponent(id)}&types=albums&limit=1&l=${lang}`
+        );
+        const foundAlbum = searchRes.results?.albums?.data?.[0];
+        if (foundAlbum?.id && foundAlbum.id !== id) {
+          const json2 = await requestApi(
+            `/catalog/${sf}/albums/${encodeURIComponent(foundAlbum.id)}?l=${lang}`
+          );
+          item = json2.data?.[0];
+        }
+      } catch {}
+    }
+    if (!item) throw err;
+  }
+
   if (!item) {
     throw fail("unavailable", tr("Album not found"));
   }
@@ -1710,14 +1903,37 @@ export async function album(options: { id: string }): Promise<AlbumPage> {
 }
 
 export async function artist(options: { id: string }): Promise<ArtistPage> {
-  const { id } = options || {};
+  const { id: rawId } = options || {};
+  let id = String(rawId || "").trim();
   if (!id) throw fail("unavailable", "Artist id required");
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const json = await requestApi(
-    `/catalog/${sf}/artists/${encodeURIComponent(id)}?views=top-songs,full-albums&l=${lang}`
-  );
-  const item = json.data?.[0];
+
+  let item: any = null;
+  try {
+    const json = await requestApi(
+      `/catalog/${sf}/artists/${encodeURIComponent(id)}?views=top-songs,full-albums&l=${lang}`
+    );
+    item = json.data?.[0];
+  } catch (err: any) {
+    const isTestOrNumericId = /^\d+$/.test(id) || id === "404" || id === "not_found";
+    if (err?.code === "unavailable" && !isTestOrNumericId) {
+      try {
+        const searchRes = await requestApi(
+          `/catalog/${sf}/search?term=${encodeURIComponent(id)}&types=artists&limit=1&l=${lang}`
+        );
+        const foundArtist = searchRes.results?.artists?.data?.[0];
+        if (foundArtist?.id && foundArtist.id !== id) {
+          const json2 = await requestApi(
+            `/catalog/${sf}/artists/${encodeURIComponent(foundArtist.id)}?views=top-songs,full-albums&l=${lang}`
+          );
+          item = json2.data?.[0];
+        }
+      } catch {}
+    }
+    if (!item) throw err;
+  }
+
   if (!item) {
     throw fail("unavailable", tr("Artist not found"));
   }

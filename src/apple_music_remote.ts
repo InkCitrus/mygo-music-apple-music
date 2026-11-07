@@ -29,6 +29,7 @@ interface ActivePlaybackSession {
   maxPositionMs: number;
   hasObservedPlaying: boolean;
   initialReportedName?: string;
+  deviceName?: string;
   lastKnownState: RemoteState | null;
 }
 
@@ -329,15 +330,7 @@ tell application "Music"
     end if
   end try
 
-  set devName to ""
-  try
-    set selDevs to (every AirPlay device whose selected is true)
-    if (count of selDevs) > 0 then
-      set devName to name of item 1 of selDevs
-    end if
-  end try
-
-  return pState & tab & (posMs as string) & tab & (durMs as string) & tab & (pVol as string) & tab & devName & tab & tName & tab & tArtist
+  return pState & tab & (posMs as string) & tab & (durMs as string) & tab & (pVol as string) & tab & "" & tab & tName & tab & tArtist
 end tell
 `.trim();
 }
@@ -749,7 +742,9 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
   }
 
   const sessionAtStart = activeSession;
+  const callStart = Date.now();
   const out = await runAppleScript(buildStateScript());
+  const execMs = Date.now() - callStart;
 
   // Discard stale state snapshot if a new remotePlay superseded the session in flight
   if (activeSession !== sessionAtStart) {
@@ -773,11 +768,18 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
   const posMs = Math.max(0, Math.round(parseLocalizedNumber(parts[1], 0)));
   const reportedDurMs = Math.max(0, Math.round(parseLocalizedNumber(parts[2], 0)));
   const volume = Math.max(0, Math.min(100, Math.round(parseLocalizedNumber(parts[3], 100))));
-  const deviceName = (parts[4] || "").trim() || translate("Mac (Apple Music)");
+  const devPart = (parts[4] || "").trim();
+  const deviceName = devPart || activeSession?.deviceName || translate("Mac (Apple Music)");
   const reportedName = (parts[5] || "").trim();
 
   const durationMs = reportedDurMs > 0 ? reportedDurMs : activeSession?.durationMs || 0;
   const playing = rawState === "playing";
+
+  // Compensate for osascript execution delay + CoreAudio buffer delay so lyrics sync on-beat
+  const latencyLead = playing && posMs > 0 && execMs > 5 ? Math.min(300, Math.round(execMs * 0.8) + 120) : 0;
+  const effectivePosMs = playing && posMs > 0
+    ? (durationMs > 0 ? Math.min(posMs + latencyLead, durationMs) : posMs + latencyLead)
+    : posMs;
 
   if (activeSession) {
     if (playing) {
@@ -838,7 +840,7 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
     const st: RemoteState = {
       playing,
       trackId: activeSession.trackId,
-      position: durationMs > 0 ? Math.min(posMs, durationMs) : posMs,
+      position: effectivePosMs,
       duration: durationMs,
       volume,
       device: deviceName,
@@ -850,7 +852,7 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
   return {
     playing,
     trackId: "",
-    position: posMs,
+    position: effectivePosMs,
     duration: durationMs,
     volume,
     device: deviceName,
@@ -889,6 +891,12 @@ export async function executeRemoteDevices(): Promise<Device[]> {
 export async function executeRemoteUse(deviceId: string): Promise<void> {
   if (!deviceId || deviceId === "computer") return;
   await runAppleScript(buildSelectDeviceScript(deviceId));
+  if (activeSession) {
+    activeSession.deviceName = deviceId;
+    if (activeSession.lastKnownState) {
+      activeSession.lastKnownState.device = deviceId;
+    }
+  }
 }
 
 // ============================================================================

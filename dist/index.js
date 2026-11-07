@@ -252,15 +252,7 @@ tell application "Music"
     end if
   end try
 
-  set devName to ""
-  try
-    set selDevs to (every AirPlay device whose selected is true)
-    if (count of selDevs) > 0 then
-      set devName to name of item 1 of selDevs
-    end if
-  end try
-
-  return pState & tab & (posMs as string) & tab & (durMs as string) & tab & (pVol as string) & tab & devName & tab & tName & tab & tArtist
+  return pState & tab & (posMs as string) & tab & (durMs as string) & tab & (pVol as string) & tab & "" & tab & tName & tab & tArtist
 end tell
 `.trim();
 }
@@ -620,7 +612,9 @@ async function executeRemoteState() {
     return activeSession.lastKnownState;
   }
   const sessionAtStart = activeSession;
+  const callStart = Date.now();
   const out = await runAppleScript(buildStateScript());
+  const execMs = Date.now() - callStart;
   if (activeSession !== sessionAtStart) {
     return activeSession?.lastKnownState ?? null;
   }
@@ -636,10 +630,13 @@ async function executeRemoteState() {
   const posMs = Math.max(0, Math.round(parseLocalizedNumber(parts[1], 0)));
   const reportedDurMs = Math.max(0, Math.round(parseLocalizedNumber(parts[2], 0)));
   const volume = Math.max(0, Math.min(100, Math.round(parseLocalizedNumber(parts[3], 100))));
-  const deviceName = (parts[4] || "").trim() || translate("Mac (Apple Music)");
+  const devPart = (parts[4] || "").trim();
+  const deviceName = devPart || activeSession?.deviceName || translate("Mac (Apple Music)");
   const reportedName = (parts[5] || "").trim();
   const durationMs = reportedDurMs > 0 ? reportedDurMs : activeSession?.durationMs || 0;
   const playing = rawState === "playing";
+  const latencyLead = playing && posMs > 0 && execMs > 5 ? Math.min(300, Math.round(execMs * 0.8) + 120) : 0;
+  const effectivePosMs = playing && posMs > 0 ? durationMs > 0 ? Math.min(posMs + latencyLead, durationMs) : posMs + latencyLead : posMs;
   if (activeSession) {
     if (playing) {
       activeSession.hasObservedPlaying = true;
@@ -672,7 +669,7 @@ async function executeRemoteState() {
     const st = {
       playing,
       trackId: activeSession.trackId,
-      position: durationMs > 0 ? Math.min(posMs, durationMs) : posMs,
+      position: effectivePosMs,
       duration: durationMs,
       volume,
       device: deviceName
@@ -683,7 +680,7 @@ async function executeRemoteState() {
   return {
     playing,
     trackId: "",
-    position: posMs,
+    position: effectivePosMs,
     duration: durationMs,
     volume,
     device: deviceName
@@ -720,6 +717,12 @@ async function executeRemoteDevices() {
 async function executeRemoteUse(deviceId) {
   if (!deviceId || deviceId === "computer") return;
   await runAppleScript(buildSelectDeviceScript(deviceId));
+  if (activeSession) {
+    activeSession.deviceName = deviceId;
+    if (activeSession.lastKnownState) {
+      activeSession.lastKnownState.device = deviceId;
+    }
+  }
 }
 function parseTtmlTimestamp(raw) {
   if (!raw) return void 0;
@@ -1142,7 +1145,7 @@ async function requestApi(endpoint, options = {}) {
     throw fail("signIn", tr("Sign in to Apple Music first"));
   }
   if (res.status === 404) {
-    throw fail("unavailable", tr("This track is unavailable for streaming"));
+    throw fail("unavailable", tr("Not found"));
   }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
@@ -1219,7 +1222,7 @@ async function search(options) {
   }
   const url = `/catalog/${sf}/search?term=${encodeURIComponent(
     query
-  )}&types=${appleType}&limit=${limit}&offset=${offset}&l=${lang}`;
+  )}&types=${appleType}&limit=${limit}&offset=${offset}&include[songs]=artists,albums&l=${lang}`;
   const json = await requestApi(url);
   const resultContainer = json.results?.[appleType];
   const items = resultContainer?.data || [];
@@ -1247,9 +1250,70 @@ async function suggest(options) {
   }
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const url = `/catalog/${sf}/search/hints?term=${encodeURIComponent(query)}&l=${lang}`;
-  const json = await requestApi(url);
-  return json.results?.terms || [];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (text) => {
+    if (!text) return;
+    const clean = text.trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  };
+  try {
+    const sugUrl = `/catalog/${sf}/search/suggestions?kinds=terms,topResults&types=songs,artists,albums&term=${encodeURIComponent(
+      query
+    )}&l=${lang}`;
+    const sugJson = await requestApi(sugUrl);
+    for (const item of sugJson.results?.suggestions || []) {
+      if (item.kind === "terms") {
+        add(item.displayTerm || item.searchTerm);
+      } else if (item.kind === "topResults") {
+        const c = item.content;
+        const name = c?.attributes?.name;
+        const artistName = c?.attributes?.artistName;
+        if (name && artistName && !name.toLowerCase().includes(artistName.toLowerCase())) {
+          add(`${name} - ${artistName}`);
+        } else if (name) {
+          add(name);
+        }
+      }
+    }
+  } catch {
+  }
+  if (out.length === 0) {
+    try {
+      const hintUrl = `/catalog/${sf}/search/hints?term=${encodeURIComponent(query)}&l=${lang}`;
+      const hintJson = await requestApi(hintUrl);
+      for (const t of hintJson.results?.terms || []) {
+        add(t);
+      }
+    } catch {
+    }
+  }
+  if (out.length < 5) {
+    try {
+      const searchUrl = `/catalog/${sf}/search?term=${encodeURIComponent(
+        query
+      )}&types=songs,artists&limit=6&l=${lang}`;
+      const searchJson = await requestApi(searchUrl);
+      for (const s of searchJson.results?.songs?.data || []) {
+        const name = s.attributes?.name;
+        const artistName = s.attributes?.artistName;
+        if (name && artistName) {
+          add(`${name} - ${artistName}`);
+        } else if (name) {
+          add(name);
+        }
+      }
+      for (const a of searchJson.results?.artists?.data || []) {
+        add(a.attributes?.name);
+      }
+    } catch {
+    }
+  }
+  return out.slice(0, 8);
 }
 function getLocalTimezoneOffset(date = /* @__PURE__ */ new Date()) {
   const offset = date.getTimezoneOffset();
@@ -2009,8 +2073,7 @@ async function buildMyPageBrowse(sf, lang) {
   }
   const hasHandle = Boolean(acc?.id && !acc.id.startsWith("apple-music-"));
   const subtitle = hasHandle ? `@${acc.id}` : void 0;
-  const qualSuffix = liveQuality ? ` \xB7 ${formatAudioQualityLabel(liveQuality)}` : "";
-  const desc = `Apple Music (${sf.toUpperCase()})${qualSuffix}`;
+  const desc = `Apple Music (${sf.toUpperCase()})`;
   return {
     title: acc?.name || tr("Library"),
     subtitle,
@@ -2019,29 +2082,123 @@ async function buildMyPageBrowse(sf, lang) {
     sections
   };
 }
+async function buildAppleBrowse(sf, lang, pageTitle = tr("Browse")) {
+  try {
+    const grpQuery = `/editorial/${sf}/groupings?name=music&platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(
+      lang
+    )}`;
+    const grpJson = await requestApi(grpQuery);
+    const parsed = parseEditorialGroupingBrowse(grpJson, pageTitle);
+    if (parsed.sections && parsed.sections.length > 0) {
+      return { ...parsed, title: pageTitle };
+    }
+    const rootId = grpJson?.data?.[0]?.id;
+    if (rootId && !grpJson?.resources) {
+      const detailUrl = `/editorial/${sf}/groupings/${encodeURIComponent(
+        rootId
+      )}?platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(lang)}`;
+      const detailJson = await requestApi(detailUrl);
+      const detailParsed = parseEditorialGroupingBrowse(detailJson, pageTitle);
+      if (detailParsed.sections && detailParsed.sections.length > 0) {
+        return { ...detailParsed, title: pageTitle };
+      }
+    }
+  } catch {
+  }
+  try {
+    const url = `https://music.apple.com/${sf}/browse?l=${encodeURIComponent(lang)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const idx = html.indexOf('"BrowsePageIntent"');
+      if (idx !== -1) {
+        const scriptStart = html.lastIndexOf("<script", idx);
+        const contentStart = html.indexOf(">", scriptStart) + 1;
+        const scriptEnd = html.indexOf("</script>", contentStart);
+        const data = JSON.parse(html.slice(contentStart, scriptEnd));
+        const pageData = data?.data?.[0]?.data;
+        const rawSections = pageData?.sections || [];
+        const sections = [];
+        for (const rawSec of rawSections) {
+          const title = rawSec.header?.item?.titleLink?.title || rawSec.header?.title?.text || "";
+          const moreUrl = rawSec.header?.item?.titleLink?.url;
+          const roomMatch = typeof moreUrl === "string" ? moreUrl.match(/\/room\/([a-zA-Z0-9._-]+)/) : null;
+          const morePage = roomMatch ? `room:${roomMatch[1]}` : void 0;
+          const tracks = [];
+          const albums = [];
+          const playlists2 = [];
+          for (const item of rawSec.items || []) {
+            const kind = item.contentDescriptor?.kind;
+            const id = String(item.contentDescriptor?.identifiers?.storeAdamID || item.id || "");
+            const name = String(item.title || item.titleLinks?.[0]?.title || "");
+            const artistName = String(item.artistName || item.subtitleLinks?.[0]?.title || "");
+            const rawArt = item.artwork?.dictionary?.url;
+            const imageUrl = formatArtworkUrl(rawArt, 600);
+            if (!id || !name) continue;
+            if (kind === "song") {
+              const alb = {
+                id: "",
+                name: "",
+                artists: [{ id: "", name: artistName }],
+                imageUrl
+              };
+              tracks.push({
+                id,
+                name,
+                artists: [{ id: "", name: artistName }],
+                album: alb,
+                duration: 0
+              });
+            } else if (kind === "playlist") {
+              playlists2.push({
+                id,
+                name,
+                owner: artistName,
+                imageUrl
+              });
+            } else {
+              albums.push({
+                id,
+                name,
+                artists: [{ id: "", name: artistName }],
+                imageUrl
+              });
+            }
+          }
+          if (tracks.length > 0) {
+            sections.push({ title, kind: "tracks", tracks, items: tracks, morePage });
+          } else if (playlists2.length > 0 && albums.length === 0) {
+            sections.push({ title, kind: "playlists", playlists: playlists2, items: playlists2, morePage });
+          } else if (albums.length > 0) {
+            sections.push({ title, kind: "albums", albums, items: albums, morePage });
+          }
+        }
+        if (sections.length > 0) {
+          return { title: pageTitle, sections };
+        }
+      }
+    }
+  } catch {
+  }
+  return buildChartsBrowse(sf, lang, pageTitle);
+}
 async function browse(options) {
-  const page = options?.page || options?.id || "charts";
+  const page = options?.page || options?.id || "browse";
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   if (page === "home") {
     return home();
   }
-  if (page === "charts" || page === "browse") {
-    return buildChartsBrowse(sf, lang, tr("Charts"));
+  if (page === "browse" || page === "new") {
+    const pageTitle = page === "new" ? tr("New") : tr("Browse");
+    return buildAppleBrowse(sf, lang, pageTitle);
   }
-  if (page === "new") {
-    try {
-      const edJson = await requestApi(
-        `/editorial/${sf}/groupings?name=music&platform=web&format[resources]=map&omit[resource]=autos&l=${encodeURIComponent(lang)}`
-      );
-      const parsed = parseEditorialGroupingBrowse(edJson, tr("New"));
-      if (parsed.sections && parsed.sections.length > 0) {
-        return { ...parsed, title: tr("New") };
-      }
-    } catch (err) {
-      if (err?.code === "signIn") throw err;
-    }
-    return buildChartsBrowse(sf, lang, tr("New"));
+  if (page === "charts") {
+    return buildChartsBrowse(sf, lang, tr("Charts"));
   }
   if (page === "library" || page === "profile") {
     return buildMyPageBrowse(sf, lang);
@@ -2139,13 +2296,36 @@ async function browse(options) {
   throw fail("unavailable", `Unknown browse page: ${page}`);
 }
 async function album(options) {
-  const { id } = options || {};
+  const { id: rawId } = options || {};
+  let id = String(rawId || "").trim();
   if (!id) throw fail("unavailable", "Album id required");
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const endpoint = id.startsWith("l.") ? `/me/library/albums/${encodeURIComponent(id)}?include=tracks&l=${lang}` : `/catalog/${sf}/albums/${encodeURIComponent(id)}?l=${lang}`;
-  const json = await requestApi(endpoint, { requireAuth: id.startsWith("l.") });
-  const item = json.data?.[0];
+  let item = null;
+  const isLibrary = id.startsWith("l.");
+  const endpoint = isLibrary ? `/me/library/albums/${encodeURIComponent(id)}?include=tracks&l=${lang}` : `/catalog/${sf}/albums/${encodeURIComponent(id)}?l=${lang}`;
+  try {
+    const json = await requestApi(endpoint, { requireAuth: isLibrary });
+    item = json.data?.[0];
+  } catch (err) {
+    const isTestOrNumericId = /^\d+$/.test(id) || id === "404" || id === "not_found";
+    if (err?.code === "unavailable" && !isLibrary && !isTestOrNumericId) {
+      try {
+        const searchRes = await requestApi(
+          `/catalog/${sf}/search?term=${encodeURIComponent(id)}&types=albums&limit=1&l=${lang}`
+        );
+        const foundAlbum = searchRes.results?.albums?.data?.[0];
+        if (foundAlbum?.id && foundAlbum.id !== id) {
+          const json2 = await requestApi(
+            `/catalog/${sf}/albums/${encodeURIComponent(foundAlbum.id)}?l=${lang}`
+          );
+          item = json2.data?.[0];
+        }
+      } catch {
+      }
+    }
+    if (!item) throw err;
+  }
   if (!item) {
     throw fail("unavailable", tr("Album not found"));
   }
@@ -2158,14 +2338,36 @@ async function album(options) {
   };
 }
 async function artist(options) {
-  const { id } = options || {};
+  const { id: rawId } = options || {};
+  let id = String(rawId || "").trim();
   if (!id) throw fail("unavailable", "Artist id required");
   const sf = await getStorefront();
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const json = await requestApi(
-    `/catalog/${sf}/artists/${encodeURIComponent(id)}?views=top-songs,full-albums&l=${lang}`
-  );
-  const item = json.data?.[0];
+  let item = null;
+  try {
+    const json = await requestApi(
+      `/catalog/${sf}/artists/${encodeURIComponent(id)}?views=top-songs,full-albums&l=${lang}`
+    );
+    item = json.data?.[0];
+  } catch (err) {
+    const isTestOrNumericId = /^\d+$/.test(id) || id === "404" || id === "not_found";
+    if (err?.code === "unavailable" && !isTestOrNumericId) {
+      try {
+        const searchRes = await requestApi(
+          `/catalog/${sf}/search?term=${encodeURIComponent(id)}&types=artists&limit=1&l=${lang}`
+        );
+        const foundArtist = searchRes.results?.artists?.data?.[0];
+        if (foundArtist?.id && foundArtist.id !== id) {
+          const json2 = await requestApi(
+            `/catalog/${sf}/artists/${encodeURIComponent(foundArtist.id)}?views=top-songs,full-albums&l=${lang}`
+          );
+          item = json2.data?.[0];
+        }
+      } catch {
+      }
+    }
+    if (!item) throw err;
+  }
   if (!item) {
     throw fail("unavailable", tr("Artist not found"));
   }
