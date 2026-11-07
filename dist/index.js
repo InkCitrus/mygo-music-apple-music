@@ -7,8 +7,25 @@ function fail(code, message) {
 
 // src/apple_music_remote.ts
 var activeSession = null;
+var lastSyncedAudioQuality = null;
 function resetRemoteSession() {
   activeSession = null;
+  lastSyncedAudioQuality = null;
+}
+function parseAudioQualitySetting(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase();
+  if (!v) return null;
+  if (v === "hires" || v === "hi-res" || v === "hi-res lossless" || v === "hires-lossless" || v === "30" || v === "192" || v === "192khz" || v === "\u9AD8\u89E3\u6790" || v === "\u9AD8\u89E3\u6790\u5EA6" || v === "\u9AD8\u89E3\u6790\u5EA6\u65E0\u635F") {
+    return "hires";
+  }
+  if (v === "lossless" || v === "alac" || v === "20" || v === "48" || v === "48khz" || v === "\u65E0\u635F" || v === "\u65E0\u635F\u97F3\u9891") {
+    return "lossless";
+  }
+  if (v === "high" || v === "aac" || v === "standard" || v === "256" || v === "256kbps" || v === "10" || v === "\u9AD8\u8D28\u91CF" || v === "\u6807\u51C6") {
+    return "high";
+  }
+  return null;
 }
 function escapeAppleScriptString(value) {
   return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n\t]+/g, " ").trim();
@@ -287,6 +304,115 @@ return "OK"
 function translate(text) {
   return typeof host !== "undefined" && typeof host.t === "function" ? host.t(text) : text;
 }
+function formatAudioQualityLabel(mode) {
+  if (mode === "hires") {
+    return translate("Hi-Res Lossless (24-bit/192 kHz)");
+  }
+  if (mode === "lossless") {
+    return translate("Lossless (24-bit/48 kHz)");
+  }
+  return translate("High Quality (AAC 256 kbps)");
+}
+function buildReadAudioQualityScript() {
+  return `
+set losslessVal to "0"
+set qualVal to "10"
+try
+  set losslessVal to do shell script "/usr/bin/defaults read com.apple.Music losslessEnabled 2>/dev/null || echo 0"
+end try
+try
+  set qualVal to do shell script "/usr/bin/defaults read com.apple.Music preferredStreamPlaybackAudioQuality 2>/dev/null || echo 10"
+end try
+return "QUALITY:" & losslessVal & ":" & qualVal
+`.trim();
+}
+function buildWriteAudioQualityScript(mode) {
+  const losslessBool = mode === "high" ? "false" : "true";
+  const expectedLossless = mode === "high" ? "0" : "1";
+  const qualInt = mode === "hires" ? 30 : mode === "lossless" ? 20 : 10;
+  return `
+set curLossless to ""
+set curQual to ""
+try
+  set curLossless to do shell script "/usr/bin/defaults read com.apple.Music losslessEnabled 2>/dev/null || echo 0"
+end try
+try
+  set curQual to do shell script "/usr/bin/defaults read com.apple.Music preferredStreamPlaybackAudioQuality 2>/dev/null || echo 10"
+end try
+
+if curLossless is "${expectedLossless}" and curQual is "${qualInt}" then
+  return "UNCHANGED"
+end if
+
+set wasPlaying to "0"
+set savedPosMs to 0
+
+if application "Music" is running then
+  try
+    tell application "Music"
+      if player state is playing then
+        set wasPlaying to "1"
+        set rawPos to player position
+        if rawPos is not missing value then
+          set savedPosMs to round (rawPos * 1000) rounding as taught in school
+        end if
+      end if
+    end tell
+  end try
+
+  try
+    tell application "Music" to quit
+  end try
+
+  repeat 12 times
+    if application "Music" is not running then exit repeat
+    delay 0.2
+  end repeat
+end if
+
+do shell script "/usr/bin/defaults write com.apple.Music losslessEnabled -bool ${losslessBool} && /usr/bin/defaults write com.apple.Music preferredStreamPlaybackAudioQuality -int ${qualInt}"
+
+return "UPDATED:" & wasPlaying & ":" & (savedPosMs as string)
+`.trim();
+}
+async function readMusicAppAudioQuality() {
+  if (typeof host === "undefined" || typeof host.spawn !== "function" || host.platform !== "darwin") {
+    return null;
+  }
+  try {
+    const out = await runAppleScript(buildReadAudioQualityScript());
+    if (!out.startsWith("QUALITY:")) return null;
+    const parts = out.slice("QUALITY:".length).trim().split(":");
+    const lossless = parts[0]?.trim() === "1" || parts[0]?.trim().toLowerCase() === "true";
+    const qual = parseInt(parts[1]?.trim() || "10", 10);
+    if (!lossless || qual <= 10) return "high";
+    if (qual >= 30) return "hires";
+    return "lossless";
+  } catch {
+    return null;
+  }
+}
+async function syncMusicAppAudioQuality(mode, options) {
+  if (typeof host === "undefined" || typeof host.spawn !== "function") {
+    return false;
+  }
+  if (host.platform && host.platform !== "darwin") {
+    return false;
+  }
+  const snapshot = activeSession ? { ...activeSession } : null;
+  const out = await runAppleScript(buildWriteAudioQualityScript(mode));
+  lastSyncedAudioQuality = mode;
+  if (out.startsWith("UPDATED:1:") && !options?.skipResume && snapshot) {
+    const posPart = parseInt(out.slice("UPDATED:1:".length).trim(), 10);
+    const resumePosMs = Number.isFinite(posPart) && posPart > 0 ? posPart : snapshot.maxPositionMs;
+    await executeRemotePlay({
+      meta: snapshot.meta,
+      storefront: snapshot.storefront,
+      positionMs: resumePosMs
+    });
+  }
+  return out.startsWith("UPDATED:");
+}
 async function runAppleScript(script) {
   if (typeof host === "undefined" || typeof host.spawn !== "function") {
     throw fail("unsupported", translate("Remote Apple Music playback requires macOS Music.app"));
@@ -353,10 +479,22 @@ async function runAppleScript(script) {
 }
 async function executeRemotePlay(params) {
   const { meta, storefront, positionMs } = params;
+  if (typeof host !== "undefined" && typeof host.setting === "function") {
+    const desiredQuality = parseAudioQualitySetting(host.setting("audioQuality"));
+    if (desiredQuality && lastSyncedAudioQuality !== desiredQuality) {
+      try {
+        await syncMusicAppAudioQuality(desiredQuality, { skipResume: true });
+      } catch (err) {
+        if (err?.code === "setup") throw err;
+      }
+    }
+  }
   const songIdForUrl = meta.catalogId || meta.id;
   const musicUrl = toMusicAppUrl(meta.url, storefront, songIdForUrl, meta.albumId);
   const posSec = Math.max(0, (positionMs || 0) / 1e3);
   activeSession = {
+    meta,
+    storefront,
     trackId: meta.id,
     catalogId: meta.catalogId,
     name: meta.name,
@@ -1605,7 +1743,7 @@ async function buildMyPageBrowse(sf, lang) {
   if (!token) {
     throw fail("signIn", tr("Sign in to Apple Music first"));
   }
-  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks] = await Promise.all([
+  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks, liveQuality] = await Promise.all([
     account().catch(() => null),
     requestApi(`/me/history/heavy-rotation?limit=12&l=${lang}`, { requireAuth: true }).catch(
       () => null
@@ -1614,7 +1752,8 @@ async function buildMyPageBrowse(sf, lang) {
       () => null
     ),
     playlists().catch(() => []),
-    recent().catch(() => [])
+    recent().catch(() => []),
+    readMusicAppAudioQuality().catch(() => null)
   ]);
   const sections = [];
   if (Array.isArray(heavyJson?.data) && heavyJson.data.length > 0) {
@@ -1664,7 +1803,8 @@ async function buildMyPageBrowse(sf, lang) {
     });
   }
   const handleLabel = acc?.id && !acc.id.startsWith("apple-music-") ? `@${acc.id} \xB7 ` : "";
-  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})`;
+  const qualSuffix = liveQuality ? ` \xB7 ${formatAudioQualityLabel(liveQuality)}` : "";
+  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})${qualSuffix}`;
   return {
     title: acc?.name || tr("Library"),
     subtitle: desc,
@@ -2781,34 +2921,46 @@ async function account() {
   }
   return null;
 }
-function setSetting(options) {
+async function setSetting(options) {
   const { key, value } = options || {};
+  if (typeof host !== "undefined" && host._setSetting) {
+    host._setSetting(key, value);
+  }
   if (key === "mediaUserToken" && !cleanMediaUserToken(value)) {
     if (typeof host !== "undefined" && host.storage) {
       try {
-        host.storage.remove("auth");
+        await host.storage.remove("auth");
       } catch {
       }
     }
-  } else if (key === "displayName" && typeof host !== "undefined" && host.storage) {
-    Promise.resolve(host.storage.get("auth")).then((auth) => {
-      if (!auth || !auth.mediaUserToken) return;
-      const trimmed = typeof value === "string" ? value.trim() : "";
-      if (trimmed && auth.account) {
-        return host.storage.set("auth", {
-          ...auth,
-          account: { ...auth.account, name: trimmed }
-        });
-      }
-      return host.storage.set("auth", {
-        ...auth,
-        profileVersion: 0
-      });
-    }).catch(() => {
-    });
+    return;
   }
-  if (typeof host !== "undefined" && host._setSetting) {
-    host._setSetting(key, value);
+  if (key === "displayName" && typeof host !== "undefined" && host.storage) {
+    try {
+      const auth = await host.storage.get("auth");
+      if (auth && auth.mediaUserToken) {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (trimmed && auth.account) {
+          await host.storage.set("auth", {
+            ...auth,
+            account: { ...auth.account, name: trimmed }
+          });
+        } else {
+          await host.storage.set("auth", {
+            ...auth,
+            profileVersion: 0
+          });
+        }
+      }
+    } catch {
+    }
+    return;
+  }
+  if (key === "audioQuality") {
+    const mode = parseAudioQualitySetting(value);
+    if (mode) {
+      await syncMusicAppAudioQuality(mode);
+    }
   }
 }
 export {
@@ -2820,15 +2972,18 @@ export {
   buildDevicesScript,
   buildPauseScript,
   buildPlayScript,
+  buildReadAudioQualityScript,
   buildResumeScript,
   buildSeekScript,
   buildSelectDeviceScript,
   buildStateScript,
   buildVolumeScript,
+  buildWriteAudioQualityScript,
   createPlaylist,
   escapeAppleScriptString,
   fail,
   formatArtworkUrl,
+  formatAudioQualityLabel,
   getDeveloperToken,
   getStorefront,
   home,
@@ -2842,10 +2997,12 @@ export {
   mapTrack,
   openInAppleMusic,
   parseAppleTTML,
+  parseAudioQualitySetting,
   parseTtmlTimestamp,
   played,
   playlist,
   playlists,
+  readMusicAppAudioQuality,
   recent,
   remoteDevices,
   remotePause,
@@ -2866,5 +3023,6 @@ export {
   stations,
   stream,
   suggest,
+  syncMusicAppAudioQuality,
   toMusicAppUrl
 };

@@ -30,8 +30,12 @@ import {
   executeRemoteState,
   executeRemoteUse,
   executeRemoteVolume,
+  formatAudioQualityLabel,
   parseAppleTTML,
+  parseAudioQualitySetting,
+  readMusicAppAudioQuality,
   resetRemoteSession,
+  syncMusicAppAudioQuality,
 } from "./apple_music_remote.js";
 
 export * from "./types.js";
@@ -39,15 +43,21 @@ export {
   buildDevicesScript,
   buildPauseScript,
   buildPlayScript,
+  buildReadAudioQualityScript,
   buildResumeScript,
   buildSeekScript,
   buildSelectDeviceScript,
   buildStateScript,
   buildVolumeScript,
+  buildWriteAudioQualityScript,
   escapeAppleScriptString,
+  formatAudioQualityLabel,
   parseAppleTTML,
+  parseAudioQualitySetting,
   parseTtmlTimestamp,
+  readMusicAppAudioQuality,
   resetRemoteSession,
+  syncMusicAppAudioQuality,
   toMusicAppUrl,
 } from "./apple_music_remote.js";
 
@@ -1277,17 +1287,19 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
     throw fail("signIn", tr("Sign in to Apple Music first"));
   }
 
-  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks] = await Promise.all([
-    account().catch(() => null),
-    requestApi(`/me/history/heavy-rotation?limit=12&l=${lang}`, { requireAuth: true }).catch(
-      () => null
-    ),
-    requestApi(`/me/library/recently-added?limit=16&l=${lang}`, { requireAuth: true }).catch(
-      () => null
-    ),
-    playlists().catch(() => [] as Playlist[]),
-    recent().catch(() => [] as Track[]),
-  ]);
+  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks, liveQuality] =
+    await Promise.all([
+      account().catch(() => null),
+      requestApi(`/me/history/heavy-rotation?limit=12&l=${lang}`, { requireAuth: true }).catch(
+        () => null
+      ),
+      requestApi(`/me/library/recently-added?limit=16&l=${lang}`, { requireAuth: true }).catch(
+        () => null
+      ),
+      playlists().catch(() => [] as Playlist[]),
+      recent().catch(() => [] as Track[]),
+      readMusicAppAudioQuality().catch(() => null),
+    ]);
 
   const sections: any[] = [];
 
@@ -1353,7 +1365,8 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
 
   const handleLabel =
     acc?.id && !acc.id.startsWith("apple-music-") ? `@${acc.id} · ` : "";
-  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})`;
+  const qualSuffix = liveQuality ? ` · ${formatAudioQualityLabel(liveQuality)}` : "";
+  const desc = `${handleLabel}Apple Music (${sf.toUpperCase()})${qualSuffix}`;
 
   return {
     title: acc?.name || tr("Library"),
@@ -2712,33 +2725,46 @@ export async function account(): Promise<Account | null> {
   return null;
 }
 
-export function setSetting(options: { key: string; value: string }): void {
+export async function setSetting(options: { key: string; value: string }): Promise<void> {
   const { key, value } = options || {};
+  if (typeof host !== "undefined" && host._setSetting) {
+    host._setSetting(key, value);
+  }
+
   if (key === "mediaUserToken" && !cleanMediaUserToken(value)) {
     if (typeof host !== "undefined" && host.storage) {
       try {
-        host.storage.remove("auth");
+        await host.storage.remove("auth");
       } catch {}
     }
-  } else if (key === "displayName" && typeof host !== "undefined" && host.storage) {
-    Promise.resolve(host.storage.get<any>("auth"))
-      .then((auth) => {
-        if (!auth || !auth.mediaUserToken) return;
+    return;
+  }
+
+  if (key === "displayName" && typeof host !== "undefined" && host.storage) {
+    try {
+      const auth = await host.storage.get<any>("auth");
+      if (auth && auth.mediaUserToken) {
         const trimmed = typeof value === "string" ? value.trim() : "";
         if (trimmed && auth.account) {
-          return host.storage.set("auth", {
+          await host.storage.set("auth", {
             ...auth,
             account: { ...auth.account, name: trimmed },
           });
+        } else {
+          await host.storage.set("auth", {
+            ...auth,
+            profileVersion: 0,
+          });
         }
-        return host.storage.set("auth", {
-          ...auth,
-          profileVersion: 0,
-        });
-      })
-      .catch(() => {});
+      }
+    } catch {}
+    return;
   }
-  if (typeof host !== "undefined" && host._setSetting) {
-    host._setSetting(key, value);
+
+  if (key === "audioQuality") {
+    const mode = parseAudioQualitySetting(value);
+    if (mode) {
+      await syncMusicAppAudioQuality(mode);
+    }
   }
 }

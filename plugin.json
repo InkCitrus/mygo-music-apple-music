@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -57,6 +57,11 @@
       "key": "displayName",
       "label": "Display Name (Optional)",
       "help": "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname."
+    },
+    {
+      "key": "audioQuality",
+      "label": "Streaming Audio Quality (Optional)",
+      "help": "Enter high (AAC 256kbps), lossless (ALAC 24-bit/48kHz), or hires (Hi-Res ALAC 24-bit/192kHz). Leave blank to follow Music.app."
     },
     {
       "key": "mediaUserToken",

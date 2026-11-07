@@ -1196,4 +1196,106 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assertEquals(radioTracks.length, 1);
     assertEquals(radioTracks[0].name, "Algernon");
   });
+
+  test("5.4.13: setSetting('audioQuality') syncs Music.app preferences (high/lossless/hires) and auto-resumes playing track", async () => {
+    assertEquals(plugin.parseAudioQualitySetting("lossless"), "lossless");
+    assertEquals(plugin.parseAudioQualitySetting("无损"), "lossless");
+    assertEquals(plugin.parseAudioQualitySetting("hires"), "hires");
+    assertEquals(plugin.parseAudioQualitySetting("Hi-Res Lossless"), "hires");
+    assertEquals(plugin.parseAudioQualitySetting("高解析度无损"), "hires");
+    assertEquals(plugin.parseAudioQualitySetting("high"), "high");
+    assertEquals(plugin.parseAudioQualitySetting("AAC"), "high");
+    assertEquals(plugin.parseAudioQualitySetting(""), null);
+
+    await host.storage.set("developer_token", "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig");
+    await host.storage.set("developer_token_exp", Date.now() + 10_000_000);
+
+    globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/songs/1679432100")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "1679432100",
+                type: "songs",
+                attributes: {
+                  name: "Algernon",
+                  artistName: "Yorushika",
+                  albumName: "Magic Lantern",
+                  durationInMillis: 254000,
+                  url: "https://music.apple.com/jp/album/magic-lantern/1679432000?i=1679432100",
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    // Start playing a song first
+    await plugin.remotePlay({ ids: ["1679432100"], start: 0, position: 10000 });
+
+    // Switch quality to Hi-Res Lossless while playing at 42s
+    host._setSpawnBehavior((rec) => {
+      if (rec.stdin.includes("preferredStreamPlaybackAudioQuality -int 30")) {
+        return { stdout: "UPDATED:1:42000" };
+      }
+      return { stdout: "OK|CATALOG" };
+    });
+
+    await plugin.setSetting({ key: "audioQuality", value: "hires" });
+
+    const history = host._getSpawnHistory();
+    const writeCall = history.find((h) =>
+      h.stdin.includes("losslessEnabled -bool true") &&
+      h.stdin.includes("preferredStreamPlaybackAudioQuality -int 30")
+    );
+    assertTruthy(writeCall, "should write Hi-Res Lossless (30) to com.apple.Music");
+
+    const resumeCall = history[history.length - 1];
+    assertIncludes(resumeCall.stdin, "set startPos to 42.000", "should auto-resume track at 42.000s");
+
+    // Switching to High Quality AAC (10) when stopped
+    host._setSpawnBehavior((rec) => {
+      if (rec.stdin.includes("preferredStreamPlaybackAudioQuality -int 10")) {
+        return { stdout: "UPDATED:0:0" };
+      }
+      return { stdout: "OK" };
+    });
+    await plugin.setSetting({ key: "audioQuality", value: "high" });
+    const highCall = host
+      ._getSpawnHistory()
+      .find(
+        (h) =>
+          h.stdin.includes("losslessEnabled -bool false") &&
+          h.stdin.includes("preferredStreamPlaybackAudioQuality -int 10")
+      );
+    assertTruthy(highCall, "should write High Quality AAC (false / 10) to com.apple.Music");
+  });
+
+  test("5.4.14: My Page displays live Music.app audio quality badge in subtitle", async () => {
+    await host.storage.set("auth", {
+      mediaUserToken: "sub_tok_qual",
+      storefront: "jp",
+      profileVersion: 2,
+      account: { id: "zichenwu", name: "ZichenWu", page: "library" },
+    });
+    await host.storage.set("developer_token", "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig");
+    await host.storage.set("developer_token_exp", Date.now() + 10_000_000);
+
+    host._setSpawnBehavior((rec) => {
+      if (rec.stdin.includes("QUALITY:")) {
+        return { stdout: "QUALITY:1:20" };
+      }
+      return { stdout: "OK" };
+    });
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), { status: 200 });
+
+    const myPage = await plugin.browse({ page: "library" });
+    assertIncludes(myPage.subtitle, "Lossless (24-bit/48 kHz)");
+  });
 });
