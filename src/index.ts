@@ -1591,18 +1591,10 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
     throw fail("signIn", tr("Sign in to Apple Music first"));
   }
 
-  const [acc, heavyJson, recentAddedJson, allPlaylists, recentTracks] =
-    await Promise.all([
-      account().catch(() => null),
-      requestApi(`/me/history/heavy-rotation?limit=16&include=catalog&l=${lang}`, { requireAuth: true }).catch(
-        () => null
-      ),
-      requestApi(`/me/library/recently-added?limit=24&include=catalog&l=${lang}`, { requireAuth: true }).catch(
-        () => null
-      ),
-      playlists().catch(() => [] as Playlist[]),
-      recent().catch(() => [] as Track[]),
-    ]);
+  const [acc, allPlaylists] = await Promise.all([
+    account().catch(() => null),
+    playlists().catch(() => [] as Playlist[]),
+  ]);
 
   const sections: Section[] = [];
 
@@ -1614,45 +1606,6 @@ async function buildMyPageBrowse(sf: string, lang: string): Promise<Browse> {
       kind: "playlists",
       playlists: displayPlaylists,
       items: displayPlaylists,
-    });
-  }
-
-  if (Array.isArray(heavyJson?.data) && heavyJson.data.length > 0) {
-    const heavyBuckets = createSectionBuckets();
-    heavyBuckets.albums = dedupeLibraryAlbums(heavyJson.data, lang)
-      .filter((x: any) => String(x?.type || "").includes("album"))
-      .map(mapAlbum);
-    heavyBuckets.playlists = heavyJson.data
-      .filter(
-        (x: any) =>
-          String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
-      )
-      .map(mapPlaylist);
-    sections.push(...bucketsToSections(tr("Heavy Rotation"), heavyBuckets));
-  }
-
-  if (Array.isArray(recentAddedJson?.data) && recentAddedJson.data.length > 0) {
-    const addedBuckets = createSectionBuckets();
-    addedBuckets.albums = dedupeLibraryAlbums(recentAddedJson.data, lang)
-      .filter((x: any) => String(x?.type || "").includes("album"))
-      .map(mapAlbum);
-    addedBuckets.playlists = recentAddedJson.data
-      .filter(
-        (x: any) =>
-          String(x?.type || "").includes("playlist") && !isFavoritesPlaylistItem(x)
-      )
-      .map(mapPlaylist);
-    sections.push(...bucketsToSections(tr("Recently Added"), addedBuckets));
-  }
-
-  if (recentTracks.length > 0) {
-    const previewTracks = recentTracks.slice(0, 10);
-    sections.push({
-      title: tr("Recently Played"),
-      kind: "tracks",
-      tracks: previewTracks,
-      items: previewTracks,
-      morePage: "recent",
     });
   }
 
@@ -2331,10 +2284,7 @@ export async function liked(options?: { offset?: number }): Promise<Page> {
 export async function savedAlbums(options?: { offset?: number; sort?: string }): Promise<AlbumList> {
   const offset = Math.max(0, Number(options?.offset) || 0);
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  const sortSetting =
-    (typeof host !== "undefined" && host.setting ? host.setting("savedAlbumsSort") : "") || "dateAdded";
-  const sortMode = options?.sort || sortSetting;
-  const sortParam = sortMode === "name" ? "name" : "-dateAdded";
+  const sortParam = options?.sort === "name" ? "name" : "-dateAdded";
 
   const json = await requestApi(
     `/me/library/albums?limit=50&offset=${offset}&sort=${sortParam}&include=catalog&l=${lang}`,

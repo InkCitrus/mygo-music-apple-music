@@ -980,10 +980,10 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assert(myPage.subtitle !== myPage.description, "My Page subtitle and description must not duplicate");
     assertTruthy(myPage.imageUrl, "My Page should include user round avatar");
     const sectionTitles = myPage.sections.map((s) => s.title);
-    assertIncludes(sectionTitles, "Heavy Rotation");
-    assertIncludes(sectionTitles, "Recently Added");
     assertIncludes(sectionTitles, "My Playlists");
-    assertIncludes(sectionTitles, "Recently Played");
+    assert(!sectionTitles.includes("Recently Added"), "My Page must not duplicate Saved Albums/Recently Added");
+    assert(!sectionTitles.includes("Recently Played"), "My Page must not duplicate sidebar Recently Played");
+    assert(!sectionTitles.includes("Heavy Rotation"), "My Page must not duplicate Home Heavy Rotation");
   });
 
   test("5.4.12: home() syncs personalized Apple Music Listen Now shelves (Anime, Yorushika Fans Like, Find Your Mood, Made for You, Stations)", async () => {
