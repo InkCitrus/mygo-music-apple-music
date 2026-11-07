@@ -1625,8 +1625,12 @@ describe("Tier 5.6: Favorite Songs Unification (liked, like, isLiked, playlists)
     assertEquals(manifest.version, pkg.version);
     const cfSetting = manifest.settings.find((s) => s.key === "crossfadeTip");
     assertTruthy(cfSetting, "manifest must contain crossfadeTip setting");
-    assertIncludes(cfSetting.help, "歌曲渐变");
+    assertEquals(cfSetting.label, "Crossfade Recommendation");
+    assertIncludes(cfSetting.help, "Crossfade Songs");
     assertIncludes(cfSetting.help, "MyGo Music");
+    const zh = JSON.parse(fs.readFileSync(path.join(projectRoot, "locales/zh-CN.json"), "utf8"));
+    assertTruthy(zh[cfSetting.label], "label must be localized in zh-CN.json");
+    assertTruthy(zh[cfSetting.help], "help must be localized in zh-CN.json");
   });
 
   test("5.4.18: remotePlay on catalog album song uses playStoreURL to immediately autoplay", async () => {

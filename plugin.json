@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -60,8 +60,8 @@
     },
     {
       "key": "crossfadeTip",
-      "label": "切歌与歌曲渐变建议 (Crossfade Recommendation)",
-      "help": "推荐在 macOS「音乐」App > 设置 > 播放 中关闭「歌曲渐变（Crossfade Songs）」，交由 MyGo Music 负责精准切歌，避免切歌时淡入错误的背景歌曲。"
+      "label": "Crossfade Recommendation",
+      "help": "Recommended: In macOS Music.app > Settings > Playback, disable 'Crossfade Songs' to allow MyGo Music to manage gapless track transitions."
     },
     {
       "key": "mediaUserToken",

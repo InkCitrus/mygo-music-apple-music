@@ -9,7 +9,17 @@ function fail(code, message) {
 var activeSession = null;
 var lastSyncedAudioQuality = null;
 var playGeneration = 0;
+function clearEndTimer(session) {
+  if (session?.endTimer) {
+    try {
+      clearTimeout(session.endTimer);
+    } catch {
+    }
+    session.endTimer = void 0;
+  }
+}
 function resetRemoteSession() {
+  clearEndTimer(activeSession);
   activeSession = null;
   lastSyncedAudioQuality = null;
   playGeneration = 0;
@@ -543,6 +553,7 @@ async function executeRemotePlay(params) {
   const musicUrl = toMusicAppUrl(meta.url, storefront, songIdForUrl, meta.albumId);
   const posSec = Math.max(0, (positionMs || 0) / 1e3);
   const gen = ++playGeneration;
+  clearEndTimer(activeSession);
   activeSession = {
     generation: gen,
     isStarting: true,
@@ -578,6 +589,7 @@ async function executeRemotePlay(params) {
     await runAppleScript(script);
   } catch (err) {
     if (activeSession && activeSession.generation === gen) {
+      clearEndTimer(activeSession);
       activeSession = null;
     }
     throw err;
@@ -588,6 +600,7 @@ async function executeRemotePlay(params) {
   }
 }
 async function executeRemotePause() {
+  clearEndTimer(activeSession);
   await runAppleScript(buildPauseScript());
   if (activeSession) {
     activeSession.lastCommandAt = Date.now();
@@ -606,6 +619,7 @@ async function executeRemoteResume() {
   }
 }
 async function executeRemoteSeek(positionMs) {
+  clearEndTimer(activeSession);
   const clampedMs = Math.max(0, Number(positionMs) || 0);
   await runAppleScript(buildSeekScript(clampedMs / 1e3));
   if (activeSession) {
@@ -660,17 +674,49 @@ async function executeRemoteState() {
   const latencyLead = playing && posMs > 0 && execMs > 5 ? Math.min(300, Math.round(execMs * 0.8) + 120) : 0;
   const effectivePosMs = playing && posMs > 0 ? durationMs > 0 ? Math.min(posMs + latencyLead, durationMs) : posMs + latencyLead : posMs;
   if (activeSession) {
+    if (activeSession.hasEnded) {
+      clearEndTimer(activeSession);
+      activeSession = null;
+      return null;
+    }
     if (playing) {
       activeSession.hasObservedPlaying = true;
+    }
+    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
+    const remainingMs = durationMs > 0 ? durationMs - posMs : 999999;
+    if (!isRadio && durationMs > 1e4 && activeSession.hasObservedPlaying && remainingMs <= 400) {
+      clearEndTimer(activeSession);
+      try {
+        await runAppleScript(buildPauseScript());
+      } catch {
+      }
+      activeSession = null;
+      return null;
+    }
+    if (!isRadio && durationMs > 1e4 && playing && remainingMs > 400 && remainingMs <= 6e3) {
+      clearEndTimer(activeSession);
+      const sessionGen = activeSession.generation;
+      const cutoffDelay = Math.max(0, remainingMs - 250);
+      activeSession.endTimer = setTimeout(async () => {
+        if (activeSession && activeSession.generation === sessionGen && !activeSession.hasEnded) {
+          activeSession.hasEnded = true;
+          try {
+            await runAppleScript(buildPauseScript());
+          } catch {
+          }
+        }
+      }, cutoffDelay);
+    } else if (!playing) {
+      clearEndTimer(activeSession);
     }
     const settled = Date.now() - activeSession.lastCommandAt > 2e3;
     if (reportedName && activeSession.initialReportedName === void 0 && (!settled || posMs < 15e3)) {
       activeSession.initialReportedName = reportedName;
     }
-    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
     const matchesRequested = Boolean(activeSession.name) && reportedName.toLowerCase() === activeSession.name.toLowerCase();
     const matchesInitial = Boolean(activeSession.initialReportedName) && reportedName.toLowerCase() === activeSession.initialReportedName.toLowerCase();
     if (!isRadio && settled && reportedName && !matchesRequested && !matchesInitial && activeSession.maxPositionMs > 5e3) {
+      clearEndTimer(activeSession);
       try {
         await runAppleScript(buildPauseScript());
       } catch {
@@ -679,6 +725,7 @@ async function executeRemoteState() {
       return null;
     }
     if (!isRadio && settled && durationMs > 1e4 && activeSession.maxPositionMs >= durationMs - 4e3 && posMs < 3e3) {
+      clearEndTimer(activeSession);
       try {
         await runAppleScript(buildPauseScript());
       } catch {

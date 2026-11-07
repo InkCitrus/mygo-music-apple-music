@@ -9,6 +9,8 @@
   "Two-letter country code (e.g. us, cn, jp, gb)": "两位国家代码（如 us, cn, jp, gb）",
   "Display Name (Optional)": "显示昵称（可选）",
   "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname.": "自定义主页问候语与侧边栏显示的用户名（留空则自动读取 Apple Music 个人资料名称）。",
+  "Crossfade Recommendation": "切歌与歌曲渐变建议",
+  "Recommended: In macOS Music.app > Settings > Playback, disable 'Crossfade Songs' to allow MyGo Music to manage gapless track transitions.": "推荐在 macOS「音乐」App > 设置 > 播放 中关闭「歌曲渐变（Crossfade Songs）」，交由 MyGo Music 负责精准切歌，避免切歌时淡入错误的背景歌曲。",
   "Streaming Audio Quality (Optional)": "流媒体播放音质（可选）",
   "Enter high (AAC 256kbps), lossless (ALAC 24-bit/48kHz), or hires (Hi-Res ALAC 24-bit/192kHz). Leave blank to follow Music.app.": "输入 high（高质量 AAC 256kbps）、lossless（无损 ALAC 24-bit/48kHz）或 hires（高解析度无损 ALAC 24-bit/192kHz），自动同步至系统“音乐”App；留空则保持“音乐”App 当前音质。",
   "High Quality (AAC 256 kbps)": "高质量 (AAC 256 kbps)",

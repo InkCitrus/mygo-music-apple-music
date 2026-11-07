@@ -31,13 +31,25 @@ interface ActivePlaybackSession {
   initialReportedName?: string;
   deviceName?: string;
   lastKnownState: RemoteState | null;
+  hasEnded?: boolean;
+  endTimer?: any;
 }
 
 let activeSession: ActivePlaybackSession | null = null;
 let lastSyncedAudioQuality: MusicAudioQualityMode | null = null;
 let playGeneration = 0;
 
+function clearEndTimer(session?: ActivePlaybackSession | null): void {
+  if (session?.endTimer) {
+    try {
+      clearTimeout(session.endTimer);
+    } catch {}
+    session.endTimer = undefined;
+  }
+}
+
 export function resetRemoteSession(): void {
+  clearEndTimer(activeSession);
   activeSession = null;
   lastSyncedAudioQuality = null;
   playGeneration = 0;
@@ -669,6 +681,7 @@ export async function executeRemotePlay(params: {
   const posSec = Math.max(0, (positionMs || 0) / 1000);
   const gen = ++playGeneration;
 
+  clearEndTimer(activeSession);
   activeSession = {
     generation: gen,
     isStarting: true,
@@ -706,6 +719,7 @@ export async function executeRemotePlay(params: {
     await runAppleScript(script);
   } catch (err) {
     if (activeSession && activeSession.generation === gen) {
+      clearEndTimer(activeSession);
       activeSession = null;
     }
     throw err;
@@ -717,6 +731,7 @@ export async function executeRemotePlay(params: {
 }
 
 export async function executeRemotePause(): Promise<void> {
+  clearEndTimer(activeSession);
   await runAppleScript(buildPauseScript());
   if (activeSession) {
     activeSession.lastCommandAt = Date.now();
@@ -737,6 +752,7 @@ export async function executeRemoteResume(): Promise<void> {
 }
 
 export async function executeRemoteSeek(positionMs: number): Promise<void> {
+  clearEndTimer(activeSession);
   const clampedMs = Math.max(0, Number(positionMs) || 0);
   await runAppleScript(buildSeekScript(clampedMs / 1000));
   if (activeSession) {
@@ -809,8 +825,53 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
     : posMs;
 
   if (activeSession) {
+    if (activeSession.hasEnded) {
+      clearEndTimer(activeSession);
+      activeSession = null;
+      return null;
+    }
+
     if (playing) {
       activeSession.hasObservedPlaying = true;
+    }
+
+    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
+    const remainingMs = durationMs > 0 ? durationMs - posMs : 999999;
+
+    // Proactive track termination before Apple Music auto-plays the next album/infinite track:
+    // When within 400ms of the track's duration (during the tail silence/outro), pause Music.app
+    // so it NEVER starts playing the next album song!
+    if (!isRadio && durationMs > 10000 && activeSession.hasObservedPlaying && remainingMs <= 400) {
+      clearEndTimer(activeSession);
+      try {
+        await runAppleScript(buildPauseScript());
+      } catch {}
+      activeSession = null;
+      return null;
+    }
+
+    // Arm proactive end-of-track timer when approaching the final 6 seconds:
+    // Pauses Music.app ~250ms before track completion, preventing the 1-second spillover of the next album track.
+    if (
+      !isRadio &&
+      durationMs > 10000 &&
+      playing &&
+      remainingMs > 400 &&
+      remainingMs <= 6000
+    ) {
+      clearEndTimer(activeSession);
+      const sessionGen = activeSession.generation;
+      const cutoffDelay = Math.max(0, remainingMs - 250);
+      activeSession.endTimer = setTimeout(async () => {
+        if (activeSession && activeSession.generation === sessionGen && !activeSession.hasEnded) {
+          activeSession.hasEnded = true;
+          try {
+            await runAppleScript(buildPauseScript());
+          } catch {}
+        }
+      }, cutoffDelay);
+    } else if (!playing) {
+      clearEndTimer(activeSession);
     }
 
     const settled = Date.now() - activeSession.lastCommandAt > 2000;
@@ -822,8 +883,6 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
     ) {
       activeSession.initialReportedName = reportedName;
     }
-
-    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
 
     // Detect if Music.app finished our track and auto-advanced to a subsequent album/autoplay song:
     // Case 1: Reported track title changed after settling (when library metadata is readable)
@@ -842,6 +901,7 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
       !matchesInitial &&
       activeSession.maxPositionMs > 5000
     ) {
+      clearEndTimer(activeSession);
       try {
         await runAppleScript(buildPauseScript());
       } catch {}
@@ -857,6 +917,7 @@ export async function executeRemoteState(): Promise<RemoteState | null> {
       activeSession.maxPositionMs >= durationMs - 4000 &&
       posMs < 3000
     ) {
+      clearEndTimer(activeSession);
       try {
         await runAppleScript(buildPauseScript());
       } catch {}
