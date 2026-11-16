@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-0.4.1 将完整曲目播放统一交给 [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core)。macOS ARM64、Windows x64 和 Linux x64 使用同一套 ALAC 播放接口，无需后台浏览器或控制系统“音乐”应用。独立核心仓库目前为私有审阅状态。
+1.0.0 将完整曲目播放统一交给 [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core)。macOS ARM64、Windows x64 和 Linux x64 使用同一套 ALAC 播放接口，无需后台浏览器或控制系统“音乐”应用。
 
 搜索、专辑、艺人、歌单、个人资料库、收藏、最近播放、个性化推荐、Apple TTML 逐字歌词及 LRCLIB 歌词回退继续由插件提供。播放核心负责原生订阅授权、ALAC 解码和系统音频输出。
 

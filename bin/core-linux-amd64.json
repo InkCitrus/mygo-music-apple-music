@@ -1,6 +1,6 @@
 {
   "protocol": 1,
-  "coreSHA256": "6b26fc638711e34e2d5b03945379c5f74b427974ff35d7b257373ca941276510",
+  "coreSHA256": "c145d2b31b5af5213448f172b578163743347b9746d426cdbceb84ac3339be74",
   "nativeFiles": {
     "libdrm_client.so": "07e74096ef69fd914d25b6345b5a1169f53ff959434905a054fa9919729ac0a2",
     "native-helper": "06d355ea701963084aab44bf3c3a44a1897f4b12250a0bfcaa13be45a5df4f10",
@@ -8,5 +8,5 @@
     "rootfs/system/lib64/libandroid.so": "5550fb751df008888bd2cb4df01928d39a79f80eeb45060120e6ef1580de67c9",
     "rootfs/system/lib64/libdl.so": "f8be2513866f3c020d151ff4f8b57926561d5c5fc32a4a7b27f905ef92c198f0"
   },
-  "sourceCommit": "d59baa6a07fe250ce85dd36a3f6046cbe347d95f"
+  "sourceCommit": "8e07a6de662c47c5444d49c978aae1427af55b52"
 }

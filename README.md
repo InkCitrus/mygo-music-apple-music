@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Version 0.4.1 replaces Music.app automation and browser playback with [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core), an independent headless ALAC player for macOS ARM64, Windows x64 and Linux x64. The core repository is private during review.
+Version 1.0.0 replaces Music.app automation and browser playback with [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core), an independent headless ALAC player for macOS ARM64, Windows x64 and Linux x64.
 
 The plugin retains catalog search, albums, artists, playlists, subscriber library, favorites, recommendations, recently played, Apple TTML word lyrics and LRCLIB fallback. The native core owns subscriber authorization, lossless decoding and system audio output. No browser or Music.app process is used for playback.
 

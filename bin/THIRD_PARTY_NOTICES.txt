@@ -1,5 +1,5 @@
 Apple Music Native Core
-Source: https://github.com/InkCitrus/apple-music-native-core (private review repository)
+Source: https://github.com/InkCitrus/apple-music-native-core
 
 New orchestration code: MIT. ALAC decoder: Apple Apache 2.0.
 mp4ff: MIT. miniaudio: see original dual-license notice.
