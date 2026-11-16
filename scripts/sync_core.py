@@ -30,6 +30,7 @@ for key in ['darwin-arm64','windows-amd64','linux-amd64']:
     if dest.exists():shutil.rmtree(dest)
     shutil.copytree(bundle,dest)
     if not key.startswith('windows'):(dest/'native-helper').chmod(0o755)
+    if key=='darwin-arm64':(dest/'AccountWindow.app/Contents/MacOS/account-ui').chmod(0o755)
     manifest={'protocol':1,'coreSHA256':hashlib.sha256(binary.read_bytes()).hexdigest(),'nativeFiles':files,'sourceCommit':info['commit'] if info else None}
     (ROOT/'bin'/('core-'+key+'.json')).write_text(json.dumps(manifest,indent=2)+'\n')
     if info:(ROOT/'bin'/('core-build-'+key+'.json')).write_text(json.dumps(info,indent=2)+'\n')

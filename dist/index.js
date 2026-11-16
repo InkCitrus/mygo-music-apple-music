@@ -74,7 +74,7 @@ function connect() {
   const binary = `bin/apple-music-core-${host.platform}-${host.arch}${host.platform === "windows" ? ".exe" : ""}`;
   let proc;
   try {
-    proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`]);
+    proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`, "--language", host.language?.() || "en", "--app-name", "MyGo Music"]);
   } catch {
     throw error("setup", "Install the native playback bundle and allow this plugin to start programs");
   }

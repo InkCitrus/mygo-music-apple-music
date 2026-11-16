@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-0.4.0 将完整曲目播放统一交给 [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core)。macOS ARM64、Windows x64 和 Linux x64 使用同一套 ALAC 播放接口，无需后台浏览器或控制系统“音乐”应用。独立核心仓库目前为私有审阅状态。
+0.4.1 将完整曲目播放统一交给 [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core)。macOS ARM64、Windows x64 和 Linux x64 使用同一套 ALAC 播放接口，无需后台浏览器或控制系统“音乐”应用。独立核心仓库目前为私有审阅状态。
 
 搜索、专辑、艺人、歌单、个人资料库、收藏、最近播放、个性化推荐、Apple TTML 逐字歌词及 LRCLIB 歌词回退继续由插件提供。播放核心负责原生订阅授权、ALAC 解码和系统音频输出。
 
@@ -15,6 +15,8 @@
 3. 有效订阅登录后即可播放曲库歌曲；输出设备通过系统声音设置选择。
 
 原来的 Music.app、浏览器和插件网页登录会话不会自动迁移，需要通过新的原生入口登录一次。旧的 `playbackBackend` 与 Music.app 交叉渐变设置已移除。退出登录会停止播放并删除新核心专用的账号目录；运行库可以继续使用。
+
+账号连接窗口明确标注由 MyGo Music 提供；macOS 在同一原生窗口内输入账号密码、验证码并显示进度与错误重试。文案跟随 MyGo Music 语言，支持简体中文和英文，其他语言回退英文。
 
 macOS 要求 Apple Silicon 与 macOS 14+；Windows 使用 x64 原生构建；Linux 需要 x64、glibc 2.38+、ALSA/PulseAudio，登录窗口需要 `zenity` 或 `kdialog`。macOS Intel、Windows/Linux ARM64 暂不支持。
 

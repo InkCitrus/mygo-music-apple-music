@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/InkCitrus/apple-music-native-core",
-  "commit": "eac2e9d1ada1668af4d5060af812708c3ac2be48",
+  "commit": "d59baa6a07fe250ce85dd36a3f6046cbe347d95f",
   "sourceDirty": false,
   "protocol": 1,
   "dependencySources": {
@@ -14,8 +14,8 @@
   "sha256": {
     "LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
     "THIRD_PARTY.md": "7b8f5dc915d96e0776e55a4bb6bb8862e6c33e82b4fa0ebdeab74dafde644fd0",
-    "amcore": "b51bdefc6107438d8f4380b4069ba3e07d89742ecce1257fafa5b517b33d8e8f",
-    "corresponding-source.tar.gz": "72385378c2e73b1c54fd374b2609d08c4ed5be3dd02a7a7637b0e3208cfbfa02",
+    "amcore": "3eb33ab931efaa654a916d5b29e4cd90c0c64409b9bea373e51771e4648c65b5",
+    "corresponding-source.tar.gz": "8c3bdf7a2d5983c35770068b3b033f77ed63d8679d78ed68c92ce00d54104821",
     "licenses/LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
     "licenses/LICENSE.Adam": "47f5b57f5f50098e9ec9391db6bcc2305f409b746cd8066c54647a4fbf0c8dbe",
     "licenses/LICENSE.Apache2": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -33,7 +33,12 @@
     "licenses/macos/android-linker.txt": "238446c747e74654ab4819f71e5be3f223605864897762e6df41047c370f0b5e",
     "licenses/macos/mc-epoll-shim.txt": "9d06735b690d68e0953a704d0764f93608f5630237c8a5cb23679fe69f4a1b6b",
     "licenses/macos/mc-logger.txt": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd",
-    "native/darwin-arm64/manifest.json": "749b2712c601e4f2eab01a5490d4f2a39b4bc9d64d523555f04154d01e88113e",
+    "native/darwin-arm64/AccountWindow.app/Contents/Info.plist": "85b16a72afa9191a327b7b7938b79c4ab2a25c04465b7555dafaacd5bd7e3b68",
+    "native/darwin-arm64/AccountWindow.app/Contents/MacOS/account-ui": "fc0f5865dedafbd73ee991b31954efbcd0cec67cdb9a1ed007383c24be1b4048",
+    "native/darwin-arm64/AccountWindow.app/Contents/Resources/Localizations/en.json": "031486b30ae00d20221b6380eeda31e7bef62656eeea35e099f1b3fb86e3b2ba",
+    "native/darwin-arm64/AccountWindow.app/Contents/Resources/Localizations/zh-Hans.json": "290b9a89196eb1736ffb31560b87802252798db018305fce73abd10232af8399",
+    "native/darwin-arm64/AccountWindow.app/Contents/_CodeSignature/CodeResources": "84a0ba829455ca18a7b91b477bbc2563bbb06fd11acb8dd458c054e1eb2483ee",
+    "native/darwin-arm64/manifest.json": "09387003c167783f56252f7f063a632dcc17f0f3c0de02a0d0df240ebf6b7ee9",
     "native/darwin-arm64/native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
   }
 }

@@ -1,8 +1,13 @@
 {
   "protocol": 1,
-  "coreSHA256": "b51bdefc6107438d8f4380b4069ba3e07d89742ecce1257fafa5b517b33d8e8f",
+  "coreSHA256": "3eb33ab931efaa654a916d5b29e4cd90c0c64409b9bea373e51771e4648c65b5",
   "nativeFiles": {
+    "AccountWindow.app/Contents/Info.plist": "85b16a72afa9191a327b7b7938b79c4ab2a25c04465b7555dafaacd5bd7e3b68",
+    "AccountWindow.app/Contents/MacOS/account-ui": "fc0f5865dedafbd73ee991b31954efbcd0cec67cdb9a1ed007383c24be1b4048",
+    "AccountWindow.app/Contents/Resources/Localizations/en.json": "031486b30ae00d20221b6380eeda31e7bef62656eeea35e099f1b3fb86e3b2ba",
+    "AccountWindow.app/Contents/Resources/Localizations/zh-Hans.json": "290b9a89196eb1736ffb31560b87802252798db018305fce73abd10232af8399",
+    "AccountWindow.app/Contents/_CodeSignature/CodeResources": "84a0ba829455ca18a7b91b477bbc2563bbb06fd11acb8dd458c054e1eb2483ee",
     "native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
   },
-  "sourceCommit": "eac2e9d1ada1668af4d5060af812708c3ac2be48"
+  "sourceCommit": "d59baa6a07fe250ce85dd36a3f6046cbe347d95f"
 }

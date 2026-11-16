@@ -55,6 +55,14 @@ test("process permission failure is actionable", async () => {
   await assert.rejects(plugin.remoteResume(), e => e.code === "setup");
 });
 
+test("account window receives the host language and client identity", async () => {
+  globalThis.host = createHost({ language: "zh-CN" });
+  await plugin.remoteResume();
+  const args = host._getSpawnHistory()[0].args;
+  assert.equal(args[args.indexOf("--language") + 1], "zh-CN");
+  assert.equal(args[args.indexOf("--app-name") + 1], "MyGo Music");
+});
+
 test("ignores stale metadata after a newer play request", async () => {
   globalThis.host = createHost(); let release;
   const pending = new Promise(resolve => { release = resolve; });

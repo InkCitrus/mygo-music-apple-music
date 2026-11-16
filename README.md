@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Version 0.4.0 replaces Music.app automation and browser playback with [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core), an independent headless ALAC player for macOS ARM64, Windows x64 and Linux x64. The core repository is private during review.
+Version 0.4.1 replaces Music.app automation and browser playback with [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core), an independent headless ALAC player for macOS ARM64, Windows x64 and Linux x64. The core repository is private during review.
 
 The plugin retains catalog search, albums, artists, playlists, subscriber library, favorites, recommendations, recently played, Apple TTML word lyrics and LRCLIB fallback. The native core owns subscriber authorization, lossless decoding and system audio output. No browser or Music.app process is used for playback.
 
@@ -11,6 +11,8 @@ The plugin retains catalog search, albums, artists, playlists, subscriber librar
 Requires MyGo Music 0.1.8+ and permission to start external programs. A complete package must contain `dist/`, `plugin.json`, `locales/`, `bin/apple-music-core-PLATFORM[.exe]` and `bin/native/PLATFORM/`. Building TypeScript alone does not create native executables.
 
 Install a complete platform bundle, then click Sign In. First use downloads checksum-pinned runtime dependencies and opens local account/password/verification-code dialogs. Credentials pass to the native helper over private pipes. An active Apple Music subscription is required. Existing Music.app, browser and web-cookie sessions are not migrated; sign in once using the new native flow. Signing out stops playback and removes only the new core's dedicated account directory.
+
+The account connection window is attributed to MyGo Music. macOS keeps credentials, verification, progress and manual error retry in one native window. Account prompts follow the host language, with English and Simplified Chinese resources and English fallback.
 
 Supported: Apple Silicon/macOS 14+, Windows x64, and Linux x64/glibc 2.38+ with ALSA or PulseAudio. Linux account dialogs require `zenity` or `kdialog`. macOS Intel and Windows/Linux ARM64 are not supported yet. Choose audio output in system settings.
 

@@ -60,7 +60,7 @@ function connect(): Connection {
   }
   const binary = `bin/apple-music-core-${host.platform}-${host.arch}${host.platform === "windows" ? ".exe" : ""}`;
   let proc: ProcessHandle;
-  try { proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`]); }
+  try { proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`, "--language", host.language?.() || "en", "--app-name", "MyGo Music"]); }
   catch { throw error("setup", "Install the native playback bundle and allow this plugin to start programs"); }
   const c: Connection = { proc, owner: host, pending: new Map(), ready: Promise.resolve() };
   connection = c;
