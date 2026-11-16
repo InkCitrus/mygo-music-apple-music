@@ -20,48 +20,11 @@ import {
   Stream,
   Track,
 } from "./types.js";
-import {
-  CachedTrackMeta,
-  executeRemoteDevices,
-  executeRemotePause,
-  executeRemotePlay,
-  executeRemoteResume,
-  executeRemoteSeek,
-  executeRemoteState,
-  executeRemoteUse,
-  executeRemoteVolume,
-  formatAudioQualityLabel,
-  parseAppleTTML,
-  parseAudioQualitySetting,
-  readMusicAppAudioQuality,
-  resetRemoteSession,
-  syncMusicAppAudioQuality,
-} from "./apple_music_remote.js";
-
+import { CachedTrackMeta, nativeCommand, nativePlay, nativeState, nativeDevices, beginNativePlay, isCurrentNativePlay, finishNativeLoading, resetRemoteSession } from "./native_remote.js";
+import { parseAppleTTML } from "./lyrics.js";
 export * from "./types.js";
-export {
-  buildDevicesScript,
-  buildPauseScript,
-  buildPlayScript,
-  buildReadAudioQualityScript,
-  buildResumeScript,
-  buildSeekScript,
-  buildSelectDeviceScript,
-  buildStateScript,
-  buildVolumeScript,
-  buildWriteAudioQualityScript,
-  escapeAppleScriptString,
-  extractCatalogStoreId,
-  formatAudioQualityLabel,
-  parseAppleTTML,
-  parseAudioQualitySetting,
-  parseTtmlTimestamp,
-  readMusicAppAudioQuality,
-  resetRemoteSession,
-  syncMusicAppAudioQuality,
-  toMusicAppUrl,
-  toPlayStoreIdUrl,
-} from "./apple_music_remote.js";
+export { parseAppleTTML, parseTtmlTimestamp } from "./lyrics.js";
+export { resetRemoteSession } from "./native_remote.js";
 
 const DEFAULT_DEV_TOKEN =
   "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IldlYlBsYXlLaWQifQ.eyJpc3MiOiJBTVBXZWJQbGF5IiwiaWF0IjoxNzkyNzgwNTM0LCJleHAiOjE3OTg4Mjg1MzQsInJvb3RfaHR0cHNfb3JpZ2luIjpbImFwcGxlLmNvbSJdfQ.wcf_7U-zcgUjY2L8d4HWFkdxP1YSJCkkqEpEtVPKpRARrlaag0DHyIpRcoUEWZU8kJlvx5Q7ZNp04OabfuiuAw";
@@ -130,10 +93,6 @@ function cleanMediaUserToken(raw?: string | null): string {
 
 async function getStoredMediaUserToken(): Promise<string> {
   if (typeof host !== "undefined") {
-    if (typeof host.setting === "function") {
-      const fromSetting = cleanMediaUserToken(host.setting("mediaUserToken"));
-      if (fromSetting) return fromSetting;
-    }
     if (host.storage) {
       try {
         const auth = await host.storage.get<any>("auth");
@@ -285,6 +244,8 @@ export function mapPlaylist(item: any): any {
 export async function getDeveloperToken(): Promise<string> {
   if (typeof host !== "undefined" && host.storage) {
     try {
+      const native = await host.storage.get<string>("native_developer_token");
+      if (native && (parseJwtExp(native) || 0) > Date.now() + 60000) return native;
       const cached = await host.storage.get<string>("developer_token");
       const cachedExp = await host.storage.get<number>("developer_token_exp");
       if (cached && cachedExp && Date.now() < cachedExp - 86400000) {
@@ -470,7 +431,7 @@ async function resolveTrackMeta(id: string): Promise<CachedTrackMeta> {
         if (st.attributes.name) name = st.attributes.name;
         if (st.attributes.url) stationUrl = st.attributes.url;
         if (st.attributes.artwork?.url) {
-          imageUrl = formatArtworkUrl(st.attributes.artwork.url, 600, 600);
+          imageUrl = formatArtworkUrl(st.attributes.artwork.url, 600);
         }
       }
     } catch {}
@@ -479,6 +440,7 @@ async function resolveTrackMeta(id: string): Promise<CachedTrackMeta> {
       id: cleanId,
       name,
       artistName,
+      albumName: "",
       durationMs: 0,
       url: stationUrl,
       imageUrl,
@@ -2580,7 +2542,7 @@ export async function stations(): Promise<Station[]> {
             attr.description?.short ||
             staticFallback?.description,
           imageUrl: attr.artwork?.url
-            ? formatArtworkUrl(attr.artwork.url, 600, 600)
+            ? formatArtworkUrl(attr.artwork.url, 600)
             : staticFallback?.imageUrl,
         });
       }
@@ -2668,6 +2630,7 @@ export async function stationNext(options: { id: string }): Promise<Track[]> {
       id,
       name: stationName,
       artistName: "Apple Music Radio",
+      albumName: "",
       durationMs: 0,
       url: stationUrl,
       imageUrl: liveMatch?.imageUrl,
@@ -2745,59 +2708,37 @@ export async function lyrics(options: { id: string }): Promise<Lyrics> {
 }
 
 // ============================================================================
-// Full-Track Remote Playback Hooks ("playback": "remote" via macOS Music.app)
+// Full-track playback through the independent native core (all supported desktops).
 // ============================================================================
 
-export async function remotePlay(options: {
-  ids: string[];
-  start?: number;
-  position?: number;
-  shuffle?: boolean;
-}): Promise<void> {
+export async function remotePlay(options: { ids: string[]; start?: number; position?: number; shuffle?: boolean }): Promise<void> {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
-  const start = Math.max(0, Number(options?.start) || 0);
+  const start = Math.max(0, Math.trunc(Number(options?.start) || 0));
   const position = Math.max(0, Number(options?.position) || 0);
-
   const targetId = ids[start];
-  if (!targetId) {
-    throw fail("unavailable", tr("This track is unavailable for streaming"));
-  }
-
-  const sf = await getStorefront();
-  const meta = await resolveTrackMeta(String(targetId));
-  await executeRemotePlay({
-    meta,
-    storefront: sf,
-    positionMs: position,
-  });
+  if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
+  const generation = beginNativePlay();
+  try {
+    const meta = await resolveTrackMeta(String(targetId));
+    if (isCurrentNativePlay(generation)) await nativePlay(meta, Math.round(position), generation);
+  } finally { finishNativeLoading(generation); }
 }
-
-export async function remotePause(): Promise<void> {
-  await executeRemotePause();
-}
-
-export async function remoteResume(): Promise<void> {
-  await executeRemoteResume();
-}
-
+export async function remotePause(): Promise<void> { await nativeCommand("pause"); }
+export async function remoteResume(): Promise<void> { await nativeCommand("resume"); }
 export async function remoteSeek(options: { position: number }): Promise<void> {
-  await executeRemoteSeek(Number(options?.position) || 0);
+  const position = Number(options?.position);
+  if (!Number.isFinite(position) || position < 0) throw fail("unavailable", "Invalid position");
+  await nativeCommand("seek", { position: Math.round(position) });
 }
-
 export async function remoteVolume(options: { percent: number }): Promise<void> {
-  await executeRemoteVolume(Number(options?.percent) ?? 100);
+  const percent = Number(options?.percent);
+  if (!Number.isFinite(percent)) throw fail("unavailable", "Invalid volume");
+  await nativeCommand("volume", { percent: Math.max(0, Math.min(100, percent)) });
 }
-
-export async function remoteState(): Promise<RemoteState | null> {
-  return executeRemoteState();
-}
-
-export async function remoteDevices(): Promise<Device[]> {
-  return executeRemoteDevices();
-}
-
+export async function remoteState(): Promise<RemoteState | null> { return nativeState(); }
+export async function remoteDevices(): Promise<Device[]> { return nativeDevices(); }
 export async function remoteUse(options: { deviceId: string }): Promise<void> {
-  await executeRemoteUse(String(options?.deviceId || ""));
+  if (options?.deviceId !== "default") throw fail("unsupported", tr("Select the output device in system audio settings"));
 }
 
 // ============================================================================
@@ -3006,42 +2947,6 @@ function extractMeAccountCandidate(json: any): {
   return { id, name, imageUrl, storefront };
 }
 
-async function getMacSystemUserName(): Promise<string> {
-  if (
-    typeof host === "undefined" ||
-    host.platform !== "darwin" ||
-    typeof host.spawn !== "function"
-  ) {
-    return "";
-  }
-  try {
-    const proc = host.spawn("/usr/bin/osascript", ["-"]);
-    proc.write(
-      'try\n  set fn to long user name of (system info)\n  if fn is not "" then return "USER:" & fn\nend try\nreturn "USER:" & (short user name of (system info))\n'
-    );
-    proc.closeStdin();
-    const lines: string[] = [];
-    while (true) {
-      const line = await proc.readLine();
-      if (line === null || line === undefined) break;
-      lines.push(line);
-    }
-    const exitCode = await proc.wait();
-    if (exitCode === 0) {
-      const out = lines.join("\n").trim();
-      if (out.startsWith("USER:")) {
-        const user = out.slice(5).trim();
-        if (user && !user.includes("\t") && !user.includes("\n")) {
-          return user;
-        }
-      }
-    }
-  } catch {
-    // Ignore when process permission is not granted
-  }
-  return "";
-}
-
 async function resolveSubscriberProfile(
   mediaUserToken: string,
   devToken: string,
@@ -3113,14 +3018,6 @@ async function resolveSubscriberProfile(
 
   let foundRealProfile = Boolean(resolvedName || social.imageUrl || meAcc.imageUrl);
 
-  if (!resolvedName) {
-    const macUser = await getMacSystemUserName();
-    if (macUser) {
-      resolvedName = macUser;
-      foundRealProfile = true;
-    }
-  }
-
   const customName = getCustomDisplayName();
   const finalName = customName || resolvedName || tr("Apple Music Subscriber");
   const finalImage = social.imageUrl || meAcc.imageUrl || "";
@@ -3187,58 +3084,21 @@ async function verifyAndPersistToken(mediaUserToken: string): Promise<Account> {
 }
 
 export async function signIn(): Promise<Account> {
-  if (typeof host !== "undefined" && typeof host.setting === "function") {
-    const pastedToken = cleanMediaUserToken(host.setting("mediaUserToken"));
-    if (pastedToken) {
-      return verifyAndPersistToken(pastedToken);
-    }
-  }
-
-  if (typeof host === "undefined" || !host.webSignIn) {
-    throw fail("unsupported", "webSignIn host API not supported in this environment");
-  }
-
-  const browserUA =
-    host.platform === "darwin"
-      ? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15"
-      : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
-
-  let result: any;
-  try {
-    result = await host.webSignIn({
-      url: "https://music.apple.com",
-      cookiesOf: "https://music.apple.com",
-      until: ["media-user-token"],
-      userAgent: browserUA,
-    });
-  } catch (err: any) {
-    if (isPluginError(err)) {
-      throw err;
-    }
-    throw fail(
-      "signIn",
-      tr("The sign-in window was closed before you finished signing in")
-    );
-  }
-
-  const cookie = result?.cookie;
-  const mediaUserToken = extractCookieMediaUserToken(cookie);
-  if (!mediaUserToken) {
-    throw fail("signIn", tr("Failed to capture Apple Music subscriber session"));
-  }
-
-  return verifyAndPersistToken(mediaUserToken);
+  if (typeof host === "undefined") throw fail("unsupported", "Native sign-in requires a desktop plugin host");
+  if (typeof host?.signInPrompt === "function") host.signInPrompt({ text: tr("Complete Apple Music sign-in in the native account dialogs") });
+  await nativeCommand("auth");
+  const session = await nativeCommand("session");
+  const token = cleanMediaUserToken(session?.mediaUserToken);
+  if (!token) throw fail("signIn", tr("Failed to capture Apple Music subscriber session"));
+  if (session?.developerToken && host.storage) await host.storage.set("native_developer_token", session.developerToken);
+  return verifyAndPersistToken(token);
 }
 
 export async function signOut(): Promise<void> {
-  resetRemoteSession();
-  resetFavoritesState();
-  if (typeof host !== "undefined" && host.storage) {
-    try {
-      await host.storage.remove("auth");
-    } catch (_) {
-      // Safely ignore storage removal errors
-    }
+  try { await nativeCommand("logout"); }
+  finally {
+    resetRemoteSession(); resetFavoritesState();
+    if (typeof host !== "undefined" && host.storage) { await host.storage.remove("auth"); await host.storage.remove("native_developer_token"); }
   }
 }
 
@@ -3295,52 +3155,15 @@ export async function account(): Promise<Account | null> {
     } catch (_) {}
   }
 
-  if (typeof host.setting === "function") {
-    const pasted = cleanMediaUserToken(host.setting("mediaUserToken"));
-    if (pasted) {
-      try {
-        const devToken = await getDeveloperToken();
-        const resolved = await resolveSubscriberProfile(pasted, devToken, "us");
-        if (host.storage) {
-          try {
-            await host.storage.set("auth", {
-              mediaUserToken: pasted,
-              storefront: resolved.storefront,
-              account: resolved.account,
-              profileVersion: CURRENT_PROFILE_VERSION,
-              signedInAt: Date.now(),
-            });
-          } catch {}
-        }
-        return resolved.account;
-      } catch {
-        return {
-          id: "apple-music-subscriber",
-          name: customName || tr("Apple Music Subscriber"),
-          imageUrl: "",
-          page: "library",
-        };
-      }
-    }
-  }
   return null;
 }
 
 export async function setSetting(options: { key: string; value: string }): Promise<void> {
   const { key, value } = options || {};
+  if (key === "audioQuality" && value !== "hires" && value !== "lossless") throw fail("unsupported", tr("The native core supports lossless and hires ALAC quality"));
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);
   }
-
-  if (key === "mediaUserToken" && !cleanMediaUserToken(value)) {
-    if (typeof host !== "undefined" && host.storage) {
-      try {
-        await host.storage.remove("auth");
-      } catch {}
-    }
-    return;
-  }
-
   if (key === "displayName" && typeof host !== "undefined" && host.storage) {
     try {
       const auth = await host.storage.get<any>("auth");
@@ -3363,9 +3186,6 @@ export async function setSetting(options: { key: string; value: string }): Promi
   }
 
   if (key === "audioQuality") {
-    const mode = parseAudioQualitySetting(value);
-    if (mode) {
-      await syncMusicAppAudioQuality(mode);
-    }
+    await nativeCommand("quality", { quality: value });
   }
 }

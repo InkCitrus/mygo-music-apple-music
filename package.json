@@ -1,6 +1,6 @@
 {
   "name": "mygo-music-apple-music",
-  "version": "0.2.7",
+  "version": "0.4.0",
   "description": "Apple Music plugin for MyGo Music",
   "license": "MIT",
   "author": "InkCitrus",
@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "node test/runner.js && node test/adversarial_m2.test.js && node test/adversarial_m3.test.js && node test/adversarial_m4.test.js"
+    "test": "node test/runner.js && node test/adversarial_m2.test.js && node test/adversarial_m3.test.js && node test/adversarial_m4.test.js && node --test test/native_backend.test.js",
+    "sync-core": "python3 scripts/sync_core.py"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -22,6 +23,7 @@
     "typescript": "^5.7.2"
   },
   "files": [
+    "bin",
     "plugin.json",
     "dist",
     "locales"

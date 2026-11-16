@@ -1,60 +1,41 @@
 # Apple Music for MyGo Music
 
-[简体中文](./README.zh-CN.md) | English
+English | [简体中文](README.zh-CN.md)
 
-Plays Apple Music in [MyGo Music](https://github.com/egoist/mygo-music) — with subscriber web sign-in (**no Apple Developer account needed**), personal library & playlists, word-by-word TTML karaoke lyrics, and full-track subscriber playback on macOS via `Music.app` remote control.
+Version 0.4.0 replaces Music.app automation and browser playback with [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core), an independent headless ALAC player for macOS ARM64, Windows x64 and Linux x64. The core repository is private during review.
 
-> [!NOTE]
-> This plugin is not affiliated with or endorsed by Apple Inc. It uses Apple Music's web catalog/library APIs and controls macOS's built-in `Music.app` via AppleScript for full-track FairPlay playback.
+The plugin retains catalog search, albums, artists, playlists, subscriber library, favorites, recommendations, recently played, Apple TTML word lyrics and LRCLIB fallback. The native core owns subscriber authorization, lossless decoding and system audio output. No browser or Music.app process is used for playback.
 
-## Install
+## Install and migrate
 
-Requires **MyGo Music 0.1.8 or later** and **macOS** (with an Apple Music subscription signed in to the built-in `Music.app` for full-track playback).
+Requires MyGo Music 0.1.8+ and permission to start external programs. A complete package must contain `dist/`, `plugin.json`, `locales/`, `bin/apple-music-core-PLATFORM[.exe]` and `bin/native/PLATFORM/`. Building TypeScript alone does not create native executables.
 
-Install with the deeplink:
+Install a complete platform bundle, then click Sign In. First use downloads checksum-pinned runtime dependencies and opens local account/password/verification-code dialogs. Credentials pass to the native helper over private pipes. An active Apple Music subscription is required. Existing Music.app, browser and web-cookie sessions are not migrated; sign in once using the new native flow. Signing out stops playback and removes only the new core's dedicated account directory.
 
-[mygo-music://install-plugin?repo=InkCitrus/mygo-music-apple-music](mygo-music://install-plugin?repo=InkCitrus/mygo-music-apple-music)
+Supported: Apple Silicon/macOS 14+, Windows x64, and Linux x64/glibc 2.38+ with ALSA or PulseAudio. Linux account dialogs require `zenity` or `kdialog`. macOS Intel and Windows/Linux ARM64 are not supported yet. Choose audio output in system settings.
 
-Or paste the GitHub URL in **Settings > Plugins > +**:
+## Playback and quality
 
-[https://github.com/InkCitrus/mygo-music-apple-music](https://github.com/InkCitrus/mygo-music-apple-music)
+`audioQuality=hires` (default) selects the highest available ALAC variant; `lossless` selects ALAC up to 48 kHz. Changes apply on the next play/seek. No silent AAC or preview fallback occurs in full playback.
 
-### Setup
+Play, pause, resume, seek, volume, mute and state polling use the same native interface on all supported desktops. MyGo Music owns queue order. Library songs require a catalog mapping. Live radio, uploaded-only tracks, AirPlay device enumeration, exclusive output and cross-track gapless output are not implemented. The separate `stream()` hook remains a preview-only API; full playback uses `remote*` hooks.
 
-1. In **Settings > Plugins > Apple Music**, enable **Allow this plugin to start programs** (only `/usr/bin/osascript` is permitted, used to control `Music.app`).
-2. Make sure macOS **Music.app** is signed in to your Apple Music subscriber account. On first playback, approve the macOS Automation prompt allowing MyGo Music / `osascript` to control `Music.app`.
-3. To load your personal library, playlists, recommendations, and Apple word-by-word lyrics, click **Sign In** and log in on `music.apple.com` in the window that opens (or paste your `media-user-token` cookie into the optional setting).
+The underlying prototype passed real subscriber ALAC 24-bit/96 kHz playback and seeking on the three target platforms. The extracted daemon and production plugin hooks also passed muted real-session playback, pause, volume, seek and shutdown checks on macOS, using simulated host process bindings and song metadata. The complete MyGo Music UI and new Windows/Linux packages still need real-account regression. Source format does not prove physical DAC format or bit-perfect output.
 
-## Signing In
+## Build
 
-No Apple Developer account or MusicKit key is required. When you click **Sign In**, the plugin opens `https://music.apple.com` inside MyGo Music's sign-in window and captures your `media-user-token` subscriber session cookie locally. Your storefront region (e.g. `cn`, `us`, `jp`) is detected automatically and can also be overridden in plugin settings.
+Build the independent core on the target OS and synchronize its complete bundle:
 
-Signing out clears the stored session from your machine.
-
-## What Works
-
-- **Signed out**: Catalog search & search suggestions, Home & Charts (`Top Songs`, `Top Albums`, `Top Playlists`), albums, artists, editorial playlists, and synced lyrics via LRCLIB.
-- **Signed in**: Personal library playlists (`p.*`), creating playlists & adding tracks, Liked Songs, Saved Albums, Recently Played, personalized Home recommendations, liking/favoriting tracks, saving albums, and Apple Music word-by-word TTML syllable lyrics (with translations).
-- **Full-track playback (macOS)**: Seamless remote control of macOS `Music.app` (`play`, `pause`, `resume`, `seek`, `volume`, queue progression, and **AirPlay speaker switching**). Library tracks start instantaneously via `Music.app` database lookup; non-library catalog tracks open directly via `music://` deep-link while keeping window focus on MyGo Music.
-- **Localization**: English and Simplified Chinese (`zh-CN`).
-
-## How It Plays
-
-Commercial Apple Music streams are encrypted with Apple FairPlay Streaming DRM, which third-party runtimes cannot decrypt directly. Like MyGo Music's Spotify remote playback architecture, this plugin declares `"playback": "remote"` and drives macOS's native `Music.app` in the background via `/usr/bin/osascript` (`host.spawn`), giving you genuine lossless/high-quality subscriber audio and native AirPlay output while browsing, searching, queueing, and reading karaoke lyrics inside MyGo Music.
-
-## Lyrics
-
-Fetched from Apple Music's `/syllable-lyrics` and `/lyrics` TTML endpoints (supporting word-by-word karaoke timing and translations) when signed in, with automatic fallback to [LRCLIB](https://lrclib.net).
-
-## Development
-
-```bash
-npm install
+```sh
+python3 /path/to/apple-music-native-core/scripts/build.py
+python3 /path/to/apple-music-native-core/scripts/bundle_sources.py
+python3 scripts/sync_core.py /path/to/apple-music-native-core/build/bundle
+npm ci
 npm run typecheck
 npm run build
 npm test
 ```
 
-## License
+Core builds require Go, a C/C++ toolchain and Python; playback does not require Python. Use native MSYS2 UCRT64 GCC on Windows, retaining the validated stack configuration and v8 TLS decoder fix. Go library packages, the versioned stdio protocol and examples live in the independent repository. The plugin controls only its own child process over private stdin/stdout and exposes no network control server.
 
-[MIT](./LICENSE)
+The plugin's own code is MIT licensed. Preserve the native core/dependency notices and corresponding source archives in `bin/`. Apple runtime dependencies are downloaded separately and are not included in the source repository. This project is not affiliated with Apple Inc.

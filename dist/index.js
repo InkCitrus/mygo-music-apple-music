@@ -5,795 +5,157 @@ function fail(code, message) {
   return err;
 }
 
-// src/apple_music_remote.ts
-var activeSession = null;
-var lastSyncedAudioQuality = null;
+// src/native_remote.ts
+var connection = null;
+var nextId = 0;
 var playGeneration = 0;
-function clearEndTimer(session) {
-  if (session?.endTimer) {
+var mapping = null;
+var loading = false;
+function error(code, message) {
+  return fail(code, typeof host !== "undefined" && typeof host.t === "function" ? host.t(message) : message);
+}
+function disconnect(c) {
+  if (connection === c) {
+    connection = null;
+    mapping = null;
+    loading = false;
+    playGeneration++;
+  }
+  for (const item of c.pending.values()) {
+    clearTimeout(item.timer);
+    item.reject(error("unavailable", "Native playback connection closed"));
+  }
+  c.pending.clear();
+  try {
+    c.proc.closeStdin();
+  } catch {
+  }
+  const timer = setTimeout(() => {
     try {
-      clearTimeout(session.endTimer);
+      c.proc.kill();
     } catch {
     }
-    session.endTimer = void 0;
-  }
+  }, 3e3);
+  void c.proc.wait().then(() => clearTimeout(timer), () => clearTimeout(timer));
 }
 function resetRemoteSession() {
-  clearEndTimer(activeSession);
-  activeSession = null;
-  lastSyncedAudioQuality = null;
-  playGeneration = 0;
+  if (connection) disconnect(connection);
+  mapping = null;
+  loading = false;
+  playGeneration++;
 }
-function parseAudioQualitySetting(raw) {
-  if (!raw || typeof raw !== "string") return null;
-  const v = raw.trim().toLowerCase();
-  if (!v) return null;
-  if (v === "hires" || v === "hi-res" || v === "hi-res lossless" || v === "hires-lossless" || v === "30" || v === "192" || v === "192khz" || v === "\u9AD8\u89E3\u6790" || v === "\u9AD8\u89E3\u6790\u5EA6" || v === "\u9AD8\u89E3\u6790\u5EA6\u65E0\u635F") {
-    return "hires";
-  }
-  if (v === "lossless" || v === "alac" || v === "20" || v === "48" || v === "48khz" || v === "\u65E0\u635F" || v === "\u65E0\u635F\u97F3\u9891") {
-    return "lossless";
-  }
-  if (v === "high" || v === "aac" || v === "standard" || v === "256" || v === "256kbps" || v === "10" || v === "\u9AD8\u8D28\u91CF" || v === "\u6807\u51C6") {
-    return "high";
-  }
-  return null;
-}
-function escapeAppleScriptString(value) {
-  return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n\t]+/g, " ").trim();
-}
-function toMusicAppUrl(rawUrl, sf, songId, albumId) {
-  const cleanId = String(songId || "").trim();
-  const cleanSf = (sf || "us").trim().toLowerCase();
-  if (cleanId.startsWith("ra.")) {
-    if (rawUrl && typeof rawUrl === "string" && rawUrl.includes("/station/")) {
-      return rawUrl.trim().replace(/^https?:\/\//i, "itsradio://").replace(/^music:\/\//i, "itsradio://");
-    }
-    return `itsradio://music.apple.com/${cleanSf}/station/${encodeURIComponent(cleanId)}`;
-  }
-  if (rawUrl && typeof rawUrl === "string") {
-    const trimmed = rawUrl.trim();
-    if (trimmed.startsWith("music://") || trimmed.startsWith("musics://") || trimmed.startsWith("itmss://") || trimmed.startsWith("itsradio://")) {
-      return trimmed;
-    }
-    if (trimmed.startsWith("https://music.apple.com/") || trimmed.startsWith("http://music.apple.com/")) {
-      return trimmed.replace(/^https?:\/\//i, "music://");
-    }
-  }
-  if (!cleanId) return "";
-  if (albumId && /^\d+$/.test(albumId)) {
-    return `music://music.apple.com/${cleanSf}/album/_/${albumId}?i=${encodeURIComponent(cleanId)}`;
-  }
-  return `music://music.apple.com/${cleanSf}/song/_/${encodeURIComponent(cleanId)}`;
-}
-function extractCatalogStoreId(catalogId, musicUrl) {
-  const direct = String(catalogId || "").trim();
-  if (/^\d+$/.test(direct)) {
-    return direct;
-  }
-  const url = String(musicUrl || "").trim();
-  if (!url) return "";
-  const itemMatch = url.match(/[?&]i=(\d+)/);
-  if (itemMatch?.[1]) return itemMatch[1];
-  const idMatch = url.match(/[?&]id=(\d+)/);
-  if (idMatch?.[1]) return idMatch[1];
-  const songMatch = url.match(/\/song\/(?:[^/?#]+\/)?(\d+)/);
-  if (songMatch?.[1]) return songMatch[1];
-  return "";
-}
-function toPlayStoreIdUrl(storeId) {
-  const cleanId = String(storeId || "").trim();
-  if (!/^\d+$/.test(cleanId)) return "";
-  return `music://music.apple.com/?cmd=playStoreID&id=${encodeURIComponent(cleanId)}`;
-}
-function buildPlayScript(params) {
-  const safeName = escapeAppleScriptString(params.name);
-  const safeArtist = escapeAppleScriptString(params.artistName);
-  const safeUrl = escapeAppleScriptString(params.musicUrl);
-  const storeId = extractCatalogStoreId(params.catalogId, params.musicUrl);
-  const safePlayStoreUrl = escapeAppleScriptString(toPlayStoreIdUrl(storeId));
-  const posSec = Math.max(0, Number.isFinite(params.positionSec) ? params.positionSec : 0);
-  return `
-set targetName to "${safeName}"
-set targetArtist to "${safeArtist}"
-set targetURL to "${safeUrl}"
-set playStoreURL to "${safePlayStoreUrl}"
-set startPos to ${posSec.toFixed(3)}
-set isStation to (targetURL contains "/station/" or targetURL starts with "itsradio://")
-
-set prevApp to ""
-try
-  tell application "System Events"
-    set prevApp to name of first application process whose frontmost is true
-  end tell
-end try
-
-tell application "Music"
-  try
-    set shuffle enabled to false
-  end try
-  try
-    set song repeat to off
-  end try
-
-  set playedFromLib to false
-  if isStation is false and targetName is not "" then
-    try
-      ignoring case
-        if targetArtist is not "" then
-          set matchedTracks to (every track of library playlist 1 whose name is targetName and artist contains targetArtist)
-        else
-          set matchedTracks to (every track of library playlist 1 whose name is targetName)
-        end if
-        if (count of matchedTracks) is 0 and playStoreURL is "" then
-          set matchedTracks to (every track of library playlist 1 whose name is targetName)
-        end if
-      end ignoring
-      if (count of matchedTracks) > 0 then
-        play (item 1 of matchedTracks)
-        set playedFromLib to true
-      end if
-    end try
-  end if
-
-  if playedFromLib is false then
-    if playStoreURL is "" and targetURL is "" then
-      error "MISSING_CATALOG_URL"
-    end if
-    try
-      stop
-    end try
-    if playStoreURL is not "" then
-      open location playStoreURL
-    else
-      open location targetURL
-    end if
-  end if
-
-  if isStation is true then
-    repeat with waitIdx from 1 to 35
-      delay 0.15
-      try
-        if player state is playing then
-          if waitIdx >= 8 then exit repeat
-        end if
-      end try
-    end repeat
-  else
-    repeat with waitIdx from 1 to 40
-      delay 0.1
-      try
-        if player state is playing then
-          set curPos to player position
-          if curPos > 0.04 or startPos > 0 then exit repeat
-        end if
-        if waitIdx >= 15 and player state is paused then
-          play
-        end if
-      end try
-    end repeat
-  end if
-
-  if startPos > 0 then
-    try
-      if player state is playing or player state is paused then
-        set player position to startPos
-      end if
-    end try
-  end if
-end tell
-
-if playedFromLib is false and prevApp is not "" and prevApp is not "Music" then
-  try
-    tell application prevApp to activate
-  end try
-end if
-
-if playedFromLib then
-  return "OK|LIBRARY"
-else
-  return "OK|CATALOG"
-end if
-`.trim();
-}
-function buildPauseScript() {
-  return `
-if application "Music" is running then
-  tell application "Music"
-    pause
-  end tell
-end if
-return "OK"
-`.trim();
-}
-function buildResumeScript() {
-  return `
-tell application "Music"
-  play
-end tell
-return "OK"
-`.trim();
-}
-function buildSeekScript(positionSec) {
-  const safeSec = Math.max(0, Number.isFinite(positionSec) ? positionSec : 0);
-  return `
-if application "Music" is running then
-  tell application "Music"
-    set player position to ${safeSec.toFixed(3)}
-  end tell
-end if
-return "OK"
-`.trim();
-}
-function buildVolumeScript(percent) {
-  const clamped = Math.max(0, Math.min(100, Math.round(Number.isFinite(percent) ? percent : 100)));
-  return `
-tell application "Music"
-  set sound volume to ${clamped}
-end tell
-return "OK"
-`.trim();
-}
-function buildStateScript() {
-  return `
-if application "Music" is not running then
-  return "STOPPED"
-end if
-
-tell application "Music"
-  set pState to "stopped"
-  try
-    set curState to player state
-    if curState is playing then
-      set pState to "playing"
-    else if curState is paused then
-      set pState to "paused"
-    else if curState is fast forwarding or curState is rewinding then
-      set pState to "playing"
-    end if
-  on error
-    return "STOPPED"
-  end try
-
-  if pState is "stopped" then
-    return "STOPPED"
-  end if
-
-  set posMs to 0
-  try
-    set rawPos to player position
-    if rawPos is not missing value then
-      set posMs to round (rawPos * 1000) rounding as taught in school
-    end if
-  end try
-
-  set pVol to 100
-  try
-    set pVol to sound volume
-  end try
-
-  set tName to ""
-  set tArtist to ""
-  set durMs to 0
-  try
-    set tName to name of current track
-    set tArtist to artist of current track
-    set rawDur to duration of current track
-    if rawDur is not missing value then
-      set durMs to round (rawDur * 1000) rounding as taught in school
-    end if
-  end try
-
-  return pState & tab & (posMs as string) & tab & (durMs as string) & tab & (pVol as string) & tab & "" & tab & tName & tab & tArtist
-end tell
-`.trim();
-}
-function buildDevicesScript() {
-  return `
-if application "Music" is not running then
-  return ""
-end if
-
-tell application "Music"
-  set outLines to ""
-  try
-    set devs to (every AirPlay device whose available is true and supports audio is true)
-    repeat with d in devs
-      set dName to name of d
-      set dSel to selected of d
-      set dAddr to ""
-      try
-        set dAddr to network address of d
-      end try
-      if dAddr is "" or dAddr is missing value then
-        set dId to dName
-      else
-        set dId to dAddr
-      end if
-      if outLines is not "" then
-        set outLines to outLines & linefeed
-      end if
-      if dSel then
-        set outLines to outLines & dId & tab & dName & tab & "1"
-      else
-        set outLines to outLines & dId & tab & dName & tab & "0"
-      end if
-    end repeat
-  end try
-  return outLines
-end tell
-`.trim();
-}
-function buildSelectDeviceScript(deviceId) {
-  const safeId = escapeAppleScriptString(deviceId);
-  return `
-tell application "Music"
-  set targetId to "${safeId}"
-  set didMatch to false
-  set devs to (every AirPlay device whose available is true and supports audio is true)
-  repeat with d in devs
-    set dName to name of d
-    set dAddr to ""
-    try
-      set dAddr to network address of d
-    end try
-    if dAddr is targetId or dName is targetId then
-      set selected of d to true
-      set didMatch to true
-    end if
-  end repeat
-  if didMatch then
-    repeat with d in devs
-      set dName to name of d
-      set dAddr to ""
-      try
-        set dAddr to network address of d
-      end try
-      if dAddr is not targetId and dName is not targetId then
-        try
-          set selected of d to false
-        end try
-      end if
-    end repeat
-  end if
-end tell
-return "OK"
-`.trim();
-}
-function translate(text) {
-  return typeof host !== "undefined" && typeof host.t === "function" ? host.t(text) : text;
-}
-function formatAudioQualityLabel(mode) {
-  if (mode === "hires") {
-    return translate("Hi-Res Lossless (24-bit/192 kHz)");
-  }
-  if (mode === "lossless") {
-    return translate("Lossless (24-bit/48 kHz)");
-  }
-  return translate("High Quality (AAC 256 kbps)");
-}
-function buildReadAudioQualityScript() {
-  return `
-set losslessVal to "0"
-set qualVal to "10"
-try
-  set losslessVal to do shell script "/usr/bin/defaults read com.apple.Music losslessEnabled 2>/dev/null || echo 0"
-end try
-try
-  set qualVal to do shell script "/usr/bin/defaults read com.apple.Music preferredStreamPlaybackAudioQuality 2>/dev/null || echo 10"
-end try
-return "QUALITY:" & losslessVal & ":" & qualVal
-`.trim();
-}
-function buildWriteAudioQualityScript(mode) {
-  const losslessBool = mode === "high" ? "false" : "true";
-  const expectedLossless = mode === "high" ? "0" : "1";
-  const qualInt = mode === "hires" ? 30 : mode === "lossless" ? 20 : 10;
-  return `
-set curLossless to ""
-set curQual to ""
-try
-  set curLossless to do shell script "/usr/bin/defaults read com.apple.Music losslessEnabled 2>/dev/null || echo 0"
-end try
-try
-  set curQual to do shell script "/usr/bin/defaults read com.apple.Music preferredStreamPlaybackAudioQuality 2>/dev/null || echo 10"
-end try
-
-if curLossless is "${expectedLossless}" and curQual is "${qualInt}" then
-  return "UNCHANGED"
-end if
-
-set wasPlaying to "0"
-set savedPosMs to 0
-
-if application "Music" is running then
-  try
-    tell application "Music"
-      if player state is playing then
-        set wasPlaying to "1"
-        set rawPos to player position
-        if rawPos is not missing value then
-          set savedPosMs to round (rawPos * 1000) rounding as taught in school
-        end if
-      end if
-    end tell
-  end try
-
-  try
-    tell application "Music" to quit
-  end try
-
-  repeat 12 times
-    if application "Music" is not running then exit repeat
-    delay 0.2
-  end repeat
-end if
-
-do shell script "/usr/bin/defaults write com.apple.Music losslessEnabled -bool ${losslessBool} && /usr/bin/defaults write com.apple.Music preferredStreamPlaybackAudioQuality -int ${qualInt}"
-
-return "UPDATED:" & wasPlaying & ":" & (savedPosMs as string)
-`.trim();
-}
-async function readMusicAppAudioQuality() {
-  if (typeof host === "undefined" || typeof host.spawn !== "function" || host.platform !== "darwin") {
-    return null;
-  }
-  try {
-    const out = await runAppleScript(buildReadAudioQualityScript());
-    if (!out.startsWith("QUALITY:")) return null;
-    const parts = out.slice("QUALITY:".length).trim().split(":");
-    const lossless = parts[0]?.trim() === "1" || parts[0]?.trim().toLowerCase() === "true";
-    const qual = parseInt(parts[1]?.trim() || "10", 10);
-    if (!lossless || qual <= 10) return "high";
-    if (qual >= 30) return "hires";
-    return "lossless";
-  } catch {
-    return null;
-  }
-}
-async function syncMusicAppAudioQuality(mode, options) {
-  if (typeof host === "undefined" || typeof host.spawn !== "function") {
-    return false;
-  }
-  if (host.platform && host.platform !== "darwin") {
-    return false;
-  }
-  const snapshot = activeSession ? { ...activeSession } : null;
-  const out = await runAppleScript(buildWriteAudioQualityScript(mode));
-  lastSyncedAudioQuality = mode;
-  if (out.startsWith("UPDATED:1:") && !options?.skipResume && snapshot) {
-    const posPart = parseInt(out.slice("UPDATED:1:".length).trim(), 10);
-    const resumePosMs = Number.isFinite(posPart) && posPart > 0 ? posPart : snapshot.maxPositionMs;
-    await executeRemotePlay({
-      meta: snapshot.meta,
-      storefront: snapshot.storefront,
-      positionMs: resumePosMs
-    });
-  }
-  return out.startsWith("UPDATED:");
-}
-async function runAppleScript(script) {
-  if (typeof host === "undefined" || typeof host.spawn !== "function") {
-    throw fail("unsupported", translate("Remote Apple Music playback requires macOS Music.app"));
-  }
-  if (host.platform && host.platform !== "darwin") {
-    throw fail("unsupported", translate("Remote Apple Music playback requires macOS Music.app"));
-  }
-  let proc;
-  const candidates = ["/usr/bin/osascript", "osascript"];
-  let lastSpawnErr = null;
-  for (const bin of candidates) {
+function send(c, method, params) {
+  const id = ++nextId;
+  return new Promise((resolve, reject) => {
+    const timeout = method === "auth" ? 15 * 6e4 : method === "setup" ? 10 * 6e4 : 65e3;
+    const timer = setTimeout(() => {
+      c.pending.delete(id);
+      reject(error("unavailable", "Native playback command timed out"));
+      disconnect(c);
+    }, timeout);
+    c.pending.set(id, { resolve, reject, timer });
     try {
-      proc = host.spawn(bin, ["-"]);
-      break;
-    } catch (err) {
-      lastSpawnErr = err;
-      const msg = String(err?.message || err || "");
-      if (msg.includes("hasn't allowed") || msg.includes("process permission") || msg.includes("start programs")) {
-        throw fail(
-          "setup",
-          translate("Allow Apple Music plugin to start programs in Settings > Plugins")
-        );
-      }
-    }
-  }
-  if (!proc) {
-    const msg = String(lastSpawnErr?.message || lastSpawnErr || "");
-    if (msg.includes("hasn't allowed") || msg.includes("process permission") || msg.includes("start programs")) {
-      throw fail(
-        "setup",
-        translate("Allow Apple Music plugin to start programs in Settings > Plugins")
-      );
-    }
-    throw fail("unavailable", translate("Failed to control macOS Music.app"));
-  }
-  try {
-    proc.write(script);
-    proc.closeStdin();
-  } catch (err) {
-    try {
-      proc.kill();
+      c.proc.write(JSON.stringify({ id, method, params }) + "\n");
     } catch {
+      clearTimeout(timer);
+      c.pending.delete(id);
+      reject(error("unavailable", "Native playback connection closed"));
+      disconnect(c);
     }
-    throw fail("unavailable", translate("Failed to control macOS Music.app"));
-  }
-  const lines = [];
-  while (true) {
-    const line = await proc.readLine();
-    if (line === null || line === void 0) break;
-    lines.push(line);
-  }
-  const exitCode = await proc.wait();
-  if (typeof exitCode === "number" && exitCode !== 0) {
-    const stderr = typeof proc.errorOutput === "function" ? proc.errorOutput() : "";
-    if (stderr.includes("MISSING_CATALOG_URL")) {
-      throw fail("unavailable", translate("This track is unavailable for streaming"));
-    }
-    throw fail(
-      "unavailable",
-      stderr.trim() || translate("Failed to control macOS Music.app")
-    );
-  }
-  return lines.join("\n").trim();
-}
-async function executeRemotePlay(params) {
-  const { meta, storefront, positionMs } = params;
-  if (typeof host !== "undefined" && typeof host.setting === "function") {
-    const desiredQuality = parseAudioQualitySetting(host.setting("audioQuality"));
-    if (desiredQuality && lastSyncedAudioQuality !== desiredQuality) {
-      try {
-        await syncMusicAppAudioQuality(desiredQuality, { skipResume: true });
-      } catch (err) {
-        if (err?.code === "setup") throw err;
-      }
-    }
-  }
-  const songIdForUrl = meta.catalogId || meta.id;
-  const catalogStoreId = meta.catalogId && /^\d+$/.test(meta.catalogId) ? meta.catalogId : /^\d+$/.test(meta.id) ? meta.id : void 0;
-  const musicUrl = toMusicAppUrl(meta.url, storefront, songIdForUrl, meta.albumId);
-  const posSec = Math.max(0, (positionMs || 0) / 1e3);
-  const gen = ++playGeneration;
-  clearEndTimer(activeSession);
-  activeSession = {
-    generation: gen,
-    isStarting: true,
-    meta,
-    storefront,
-    trackId: meta.id,
-    catalogId: catalogStoreId,
-    name: meta.name,
-    artistName: meta.artistName,
-    durationMs: meta.durationMs || 0,
-    startedAt: Date.now(),
-    lastCommandAt: Date.now(),
-    maxPositionMs: Math.max(0, positionMs || 0),
-    hasObservedPlaying: false,
-    initialReportedName: void 0,
-    lastKnownState: {
-      playing: true,
-      trackId: meta.id,
-      position: Math.max(0, positionMs || 0),
-      duration: meta.durationMs || 0,
-      volume: 100,
-      device: translate("Mac (Apple Music)")
-    }
-  };
-  const script = buildPlayScript({
-    name: meta.name,
-    artistName: meta.artistName,
-    musicUrl,
-    catalogId: catalogStoreId,
-    positionSec: posSec
   });
+}
+function connect() {
+  if (typeof host === "undefined" || typeof host.spawn !== "function") throw error("setup", "Allow the Apple Music plugin to start the native playback core");
+  if (connection?.owner === host) return connection;
+  if (connection) disconnect(connection);
+  if (!(host.platform === "darwin" && host.arch === "arm64") && !(["windows", "linux"].includes(host.platform) && host.arch === "amd64")) {
+    throw error("unsupported", "Native playback supports macOS ARM64, Windows x64 and Linux x64");
+  }
+  const binary = `bin/apple-music-core-${host.platform}-${host.arch}${host.platform === "windows" ? ".exe" : ""}`;
+  let proc;
   try {
-    await runAppleScript(script);
-  } catch (err) {
-    if (activeSession && activeSession.generation === gen) {
-      clearEndTimer(activeSession);
-      activeSession = null;
-    }
-    throw err;
+    proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`]);
+  } catch {
+    throw error("setup", "Install the native playback bundle and allow this plugin to start programs");
   }
-  if (activeSession && activeSession.generation === gen) {
-    activeSession.isStarting = false;
-    activeSession.lastCommandAt = Date.now();
-  }
-}
-async function executeRemotePause() {
-  clearEndTimer(activeSession);
-  await runAppleScript(buildPauseScript());
-  if (activeSession) {
-    activeSession.lastCommandAt = Date.now();
-    if (activeSession.lastKnownState) {
-      activeSession.lastKnownState.playing = false;
-    }
-  }
-}
-async function executeRemoteResume() {
-  await runAppleScript(buildResumeScript());
-  if (activeSession) {
-    activeSession.lastCommandAt = Date.now();
-    if (activeSession.lastKnownState) {
-      activeSession.lastKnownState.playing = true;
-    }
-  }
-}
-async function executeRemoteSeek(positionMs) {
-  clearEndTimer(activeSession);
-  const clampedMs = Math.max(0, Number(positionMs) || 0);
-  await runAppleScript(buildSeekScript(clampedMs / 1e3));
-  if (activeSession) {
-    activeSession.lastCommandAt = Date.now();
-    activeSession.maxPositionMs = clampedMs;
-    if (activeSession.lastKnownState) {
-      activeSession.lastKnownState.position = clampedMs;
-    }
-  }
-}
-async function executeRemoteVolume(percent) {
-  const clamped = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
-  await runAppleScript(buildVolumeScript(clamped));
-  if (activeSession?.lastKnownState) {
-    activeSession.lastKnownState.volume = clamped;
-  }
-}
-function parseLocalizedNumber(raw, fallback = 0) {
-  if (!raw) return fallback;
-  const normalized = raw.trim().replace(",", ".");
-  const n = Number(normalized);
-  return Number.isFinite(n) ? n : fallback;
-}
-async function executeRemoteState() {
-  if (activeSession?.isStarting) {
-    return activeSession.lastKnownState;
-  }
-  const sessionAtStart = activeSession;
-  const callStart = Date.now();
-  const out = await runAppleScript(buildStateScript());
-  const execMs = Date.now() - callStart;
-  if (activeSession !== sessionAtStart) {
-    return activeSession?.lastKnownState ?? null;
-  }
-  if (!out || out === "STOPPED") {
-    if (activeSession && !activeSession.hasObservedPlaying && Date.now() - activeSession.lastCommandAt < 4e3) {
-      return activeSession.lastKnownState;
-    }
-    activeSession = null;
-    return null;
-  }
-  const parts = out.split("	");
-  const rawState = (parts[0] || "").trim();
-  const posMs = Math.max(0, Math.round(parseLocalizedNumber(parts[1], 0)));
-  const reportedDurMs = Math.max(0, Math.round(parseLocalizedNumber(parts[2], 0)));
-  const volume = Math.max(0, Math.min(100, Math.round(parseLocalizedNumber(parts[3], 100))));
-  const devPart = (parts[4] || "").trim();
-  const deviceName = devPart || activeSession?.deviceName || translate("Mac (Apple Music)");
-  const reportedName = (parts[5] || "").trim();
-  const durationMs = reportedDurMs > 0 ? reportedDurMs : activeSession?.durationMs || 0;
-  const playing = rawState === "playing";
-  const latencyLead = playing && posMs > 0 && execMs > 5 ? Math.min(300, Math.round(execMs * 0.8) + 120) : 0;
-  const effectivePosMs = playing && posMs > 0 ? durationMs > 0 ? Math.min(posMs + latencyLead, durationMs) : posMs + latencyLead : posMs;
-  if (activeSession) {
-    if (activeSession.hasEnded) {
-      clearEndTimer(activeSession);
-      activeSession = null;
-      return null;
-    }
-    if (playing) {
-      activeSession.hasObservedPlaying = true;
-    }
-    const isRadio = Boolean(activeSession.trackId && String(activeSession.trackId).startsWith("ra."));
-    const remainingMs = durationMs > 0 ? durationMs - posMs : 999999;
-    if (!isRadio && durationMs > 1e4 && activeSession.hasObservedPlaying && remainingMs <= 400) {
-      clearEndTimer(activeSession);
-      try {
-        await runAppleScript(buildPauseScript());
-      } catch {
-      }
-      activeSession = null;
-      return null;
-    }
-    if (!isRadio && durationMs > 1e4 && playing && remainingMs > 400 && remainingMs <= 6e3) {
-      clearEndTimer(activeSession);
-      const sessionGen = activeSession.generation;
-      const cutoffDelay = Math.max(0, remainingMs - 250);
-      activeSession.endTimer = setTimeout(async () => {
-        if (activeSession && activeSession.generation === sessionGen && !activeSession.hasEnded) {
-          activeSession.hasEnded = true;
-          try {
-            await runAppleScript(buildPauseScript());
-          } catch {
-          }
+  const c = { proc, owner: host, pending: /* @__PURE__ */ new Map(), ready: Promise.resolve() };
+  connection = c;
+  void (async () => {
+    try {
+      for (let line; (line = await proc.readLine()) !== null; ) {
+        let reply;
+        try {
+          reply = JSON.parse(line);
+        } catch {
+          continue;
         }
-      }, cutoffDelay);
-    } else if (!playing) {
-      clearEndTimer(activeSession);
-    }
-    const settled = Date.now() - activeSession.lastCommandAt > 2e3;
-    if (reportedName && activeSession.initialReportedName === void 0 && (!settled || posMs < 15e3)) {
-      activeSession.initialReportedName = reportedName;
-    }
-    const matchesRequested = Boolean(activeSession.name) && reportedName.toLowerCase() === activeSession.name.toLowerCase();
-    const matchesInitial = Boolean(activeSession.initialReportedName) && reportedName.toLowerCase() === activeSession.initialReportedName.toLowerCase();
-    if (!isRadio && settled && reportedName && !matchesRequested && !matchesInitial && activeSession.maxPositionMs > 5e3) {
-      clearEndTimer(activeSession);
-      try {
-        await runAppleScript(buildPauseScript());
-      } catch {
+        const item = c.pending.get(reply.id);
+        if (!item) continue;
+        c.pending.delete(reply.id);
+        clearTimeout(item.timer);
+        if (reply.ok !== true) {
+          const code = ["signIn", "setup", "unsupported"].includes(reply.error?.code) ? reply.error.code : "unavailable";
+          const message = code === "signIn" ? "Sign in using the native account window" : code === "setup" ? "Install or repair the native runtime" : code === "unsupported" ? "This track, quality or platform is not supported" : "Native operation failed";
+          item.reject(error(code, message));
+        } else item.resolve(reply.result ?? null);
       }
-      activeSession = null;
-      return null;
+    } catch {
+    } finally {
+      disconnect(c);
     }
-    if (!isRadio && settled && durationMs > 1e4 && activeSession.maxPositionMs >= durationMs - 4e3 && posMs < 3e3) {
-      clearEndTimer(activeSession);
-      try {
-        await runAppleScript(buildPauseScript());
-      } catch {
-      }
-      activeSession = null;
-      return null;
+  })();
+  c.ready = send(c, "hello", {}).then((value) => {
+    if (value?.protocol !== 1) {
+      disconnect(c);
+      throw error("setup", "Update the native playback core to a compatible version");
     }
-    if (posMs > activeSession.maxPositionMs) {
-      activeSession.maxPositionMs = posMs;
-    }
-    const st = {
-      playing,
-      trackId: activeSession.trackId,
-      position: effectivePosMs,
-      duration: durationMs,
-      volume,
-      device: deviceName
-    };
-    activeSession.lastKnownState = st;
-    return st;
-  }
+  });
+  return c;
+}
+async function nativeCommand(method, params = {}) {
+  const c = connect();
+  await c.ready;
+  return send(c, method, params);
+}
+function beginNativePlay() {
+  if (connection && connection.owner !== host) disconnect(connection);
+  loading = true;
+  return ++playGeneration;
+}
+function isCurrentNativePlay(generation) {
+  return generation === playGeneration;
+}
+function finishNativeLoading(generation) {
+  if (isCurrentNativePlay(generation)) loading = false;
+}
+async function nativePlay(meta, position, generation) {
+  const id = meta.catalogId || meta.id;
+  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
+  const requestedQuality = String(host.setting("audioQuality") || "hires").toLowerCase();
+  const quality = requestedQuality === "lossless" ? "lossless" : "hires";
+  if (!isCurrentNativePlay(generation)) return;
+  await nativeCommand("play", { trackId: id, position, quality });
+  if (isCurrentNativePlay(generation)) mapping = { requested: meta.id, catalog: id };
+}
+async function nativeState() {
+  if (!connection || loading) return null;
+  const state = await nativeCommand("state");
+  if (!state || ["idle", "ended"].includes(state.status)) return null;
+  if (state.status === "error") throw error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
   return {
-    playing,
-    trackId: "",
-    position: effectivePosMs,
-    duration: durationMs,
-    volume,
-    device: deviceName
+    playing: state.status !== "paused",
+    trackId: mapping && state.trackId === mapping.catalog ? mapping.requested : state.trackId,
+    position: Number(state.position) || 0,
+    duration: Number(state.duration) || 0,
+    volume: Number.isFinite(state.volume) ? state.volume : 100,
+    device: "default"
   };
 }
-async function executeRemoteDevices() {
-  const fallback = {
-    id: "computer",
-    name: translate("Mac (Apple Music)"),
-    active: true
-  };
-  try {
-    const out = await runAppleScript(buildDevicesScript());
-    if (!out) return [fallback];
-    const devices = [];
-    for (const line of out.split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      const [id, name, sel] = line.split("	");
-      if (!id || !name) continue;
-      devices.push({
-        id: id.trim(),
-        name: name.trim(),
-        active: sel?.trim() === "1"
-      });
-    }
-    return devices.length > 0 ? devices : [fallback];
-  } catch (err) {
-    if (err && (err.code === "setup" || err.code === "unsupported")) {
-      throw err;
-    }
-    return [fallback];
-  }
+async function nativeDevices() {
+  return [{ id: "default", name: typeof host !== "undefined" && typeof host.t === "function" ? host.t("System Audio Output") : "System Audio Output", active: true }];
 }
-async function executeRemoteUse(deviceId) {
-  if (!deviceId || deviceId === "computer") return;
-  await runAppleScript(buildSelectDeviceScript(deviceId));
-  if (activeSession) {
-    activeSession.deviceName = deviceId;
-    if (activeSession.lastKnownState) {
-      activeSession.lastKnownState.device = deviceId;
-    }
-  }
-}
+
+// src/lyrics.ts
 function parseTtmlTimestamp(raw) {
   if (!raw) return void 0;
   const s = raw.trim();
@@ -974,10 +336,6 @@ function cleanMediaUserToken(raw) {
 }
 async function getStoredMediaUserToken() {
   if (typeof host !== "undefined") {
-    if (typeof host.setting === "function") {
-      const fromSetting = cleanMediaUserToken(host.setting("mediaUserToken"));
-      if (fromSetting) return fromSetting;
-    }
     if (host.storage) {
       try {
         const auth = await host.storage.get("auth");
@@ -1095,6 +453,8 @@ function mapPlaylist(item) {
 async function getDeveloperToken() {
   if (typeof host !== "undefined" && host.storage) {
     try {
+      const native = await host.storage.get("native_developer_token");
+      if (native && (parseJwtExp(native) || 0) > Date.now() + 6e4) return native;
       const cached = await host.storage.get("developer_token");
       const cachedExp = await host.storage.get("developer_token_exp");
       if (cached && cachedExp && Date.now() < cachedExp - 864e5) {
@@ -1252,7 +612,7 @@ async function resolveTrackMeta(id) {
         if (st.attributes.name) name = st.attributes.name;
         if (st.attributes.url) stationUrl = st.attributes.url;
         if (st.attributes.artwork?.url) {
-          imageUrl = formatArtworkUrl(st.attributes.artwork.url, 600, 600);
+          imageUrl = formatArtworkUrl(st.attributes.artwork.url, 600);
         }
       }
     } catch {
@@ -1261,6 +621,7 @@ async function resolveTrackMeta(id) {
       id: cleanId,
       name,
       artistName,
+      albumName: "",
       durationMs: 0,
       url: stationUrl,
       imageUrl
@@ -2985,7 +2346,7 @@ async function stations() {
           id,
           name: attr.name || staticFallback?.name || "Apple Music Radio",
           description: attr.editorialNotes?.short || attr.editorialNotes?.tagline || attr.description?.short || staticFallback?.description,
-          imageUrl: attr.artwork?.url ? formatArtworkUrl(attr.artwork.url, 600, 600) : staticFallback?.imageUrl
+          imageUrl: attr.artwork?.url ? formatArtworkUrl(attr.artwork.url, 600) : staticFallback?.imageUrl
         });
       }
     } else {
@@ -3067,6 +2428,7 @@ async function stationNext(options) {
       id,
       name: stationName,
       artistName: "Apple Music Radio",
+      albumName: "",
       durationMs: 0,
       url: stationUrl,
       imageUrl: liveMatch?.imageUrl
@@ -3130,40 +2492,42 @@ async function lyrics(options) {
 }
 async function remotePlay(options) {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
-  const start = Math.max(0, Number(options?.start) || 0);
+  const start = Math.max(0, Math.trunc(Number(options?.start) || 0));
   const position = Math.max(0, Number(options?.position) || 0);
   const targetId = ids[start];
-  if (!targetId) {
-    throw fail("unavailable", tr("This track is unavailable for streaming"));
+  if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
+  const generation = beginNativePlay();
+  try {
+    const meta = await resolveTrackMeta(String(targetId));
+    if (isCurrentNativePlay(generation)) await nativePlay(meta, Math.round(position), generation);
+  } finally {
+    finishNativeLoading(generation);
   }
-  const sf = await getStorefront();
-  const meta = await resolveTrackMeta(String(targetId));
-  await executeRemotePlay({
-    meta,
-    storefront: sf,
-    positionMs: position
-  });
 }
 async function remotePause() {
-  await executeRemotePause();
+  await nativeCommand("pause");
 }
 async function remoteResume() {
-  await executeRemoteResume();
+  await nativeCommand("resume");
 }
 async function remoteSeek(options) {
-  await executeRemoteSeek(Number(options?.position) || 0);
+  const position = Number(options?.position);
+  if (!Number.isFinite(position) || position < 0) throw fail("unavailable", "Invalid position");
+  await nativeCommand("seek", { position: Math.round(position) });
 }
 async function remoteVolume(options) {
-  await executeRemoteVolume(Number(options?.percent) ?? 100);
+  const percent = Number(options?.percent);
+  if (!Number.isFinite(percent)) throw fail("unavailable", "Invalid volume");
+  await nativeCommand("volume", { percent: Math.max(0, Math.min(100, percent)) });
 }
 async function remoteState() {
-  return executeRemoteState();
+  return nativeState();
 }
 async function remoteDevices() {
-  return executeRemoteDevices();
+  return nativeDevices();
 }
 async function remoteUse(options) {
-  await executeRemoteUse(String(options?.deviceId || ""));
+  if (options?.deviceId !== "default") throw fail("unsupported", tr("Select the output device in system audio settings"));
 }
 async function stream(options) {
   const { id } = options || {};
@@ -3314,36 +2678,6 @@ function extractMeAccountCandidate(json) {
   }
   return { id, name, imageUrl, storefront };
 }
-async function getMacSystemUserName() {
-  if (typeof host === "undefined" || host.platform !== "darwin" || typeof host.spawn !== "function") {
-    return "";
-  }
-  try {
-    const proc = host.spawn("/usr/bin/osascript", ["-"]);
-    proc.write(
-      'try\n  set fn to long user name of (system info)\n  if fn is not "" then return "USER:" & fn\nend try\nreturn "USER:" & (short user name of (system info))\n'
-    );
-    proc.closeStdin();
-    const lines = [];
-    while (true) {
-      const line = await proc.readLine();
-      if (line === null || line === void 0) break;
-      lines.push(line);
-    }
-    const exitCode = await proc.wait();
-    if (exitCode === 0) {
-      const out = lines.join("\n").trim();
-      if (out.startsWith("USER:")) {
-        const user = out.slice(5).trim();
-        if (user && !user.includes("	") && !user.includes("\n")) {
-          return user;
-        }
-      }
-    }
-  } catch {
-  }
-  return "";
-}
 async function resolveSubscriberProfile(mediaUserToken, devToken, fallbackStorefront) {
   const authHeaders = {
     Authorization: `Bearer ${devToken}`,
@@ -3399,13 +2733,6 @@ async function resolveSubscriberProfile(mediaUserToken, devToken, fallbackStoref
     }
   }
   let foundRealProfile = Boolean(resolvedName || social.imageUrl || meAcc.imageUrl);
-  if (!resolvedName) {
-    const macUser = await getMacSystemUserName();
-    if (macUser) {
-      resolvedName = macUser;
-      foundRealProfile = true;
-    }
-  }
   const customName = getCustomDisplayName();
   const finalName = customName || resolvedName || tr("Apple Music Subscriber");
   const finalImage = social.imageUrl || meAcc.imageUrl || "";
@@ -3464,47 +2791,24 @@ async function verifyAndPersistToken(mediaUserToken) {
   return resolved.account;
 }
 async function signIn() {
-  if (typeof host !== "undefined" && typeof host.setting === "function") {
-    const pastedToken = cleanMediaUserToken(host.setting("mediaUserToken"));
-    if (pastedToken) {
-      return verifyAndPersistToken(pastedToken);
-    }
-  }
-  if (typeof host === "undefined" || !host.webSignIn) {
-    throw fail("unsupported", "webSignIn host API not supported in this environment");
-  }
-  const browserUA = host.platform === "darwin" ? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15" : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
-  let result;
-  try {
-    result = await host.webSignIn({
-      url: "https://music.apple.com",
-      cookiesOf: "https://music.apple.com",
-      until: ["media-user-token"],
-      userAgent: browserUA
-    });
-  } catch (err) {
-    if (isPluginError(err)) {
-      throw err;
-    }
-    throw fail(
-      "signIn",
-      tr("The sign-in window was closed before you finished signing in")
-    );
-  }
-  const cookie = result?.cookie;
-  const mediaUserToken = extractCookieMediaUserToken(cookie);
-  if (!mediaUserToken) {
-    throw fail("signIn", tr("Failed to capture Apple Music subscriber session"));
-  }
-  return verifyAndPersistToken(mediaUserToken);
+  if (typeof host === "undefined") throw fail("unsupported", "Native sign-in requires a desktop plugin host");
+  if (typeof host?.signInPrompt === "function") host.signInPrompt({ text: tr("Complete Apple Music sign-in in the native account dialogs") });
+  await nativeCommand("auth");
+  const session = await nativeCommand("session");
+  const token = cleanMediaUserToken(session?.mediaUserToken);
+  if (!token) throw fail("signIn", tr("Failed to capture Apple Music subscriber session"));
+  if (session?.developerToken && host.storage) await host.storage.set("native_developer_token", session.developerToken);
+  return verifyAndPersistToken(token);
 }
 async function signOut() {
-  resetRemoteSession();
-  resetFavoritesState();
-  if (typeof host !== "undefined" && host.storage) {
-    try {
+  try {
+    await nativeCommand("logout");
+  } finally {
+    resetRemoteSession();
+    resetFavoritesState();
+    if (typeof host !== "undefined" && host.storage) {
       await host.storage.remove("auth");
-    } catch (_) {
+      await host.storage.remove("native_developer_token");
     }
   }
 }
@@ -3548,50 +2852,13 @@ async function account() {
     } catch (_) {
     }
   }
-  if (typeof host.setting === "function") {
-    const pasted = cleanMediaUserToken(host.setting("mediaUserToken"));
-    if (pasted) {
-      try {
-        const devToken = await getDeveloperToken();
-        const resolved = await resolveSubscriberProfile(pasted, devToken, "us");
-        if (host.storage) {
-          try {
-            await host.storage.set("auth", {
-              mediaUserToken: pasted,
-              storefront: resolved.storefront,
-              account: resolved.account,
-              profileVersion: CURRENT_PROFILE_VERSION,
-              signedInAt: Date.now()
-            });
-          } catch {
-          }
-        }
-        return resolved.account;
-      } catch {
-        return {
-          id: "apple-music-subscriber",
-          name: customName || tr("Apple Music Subscriber"),
-          imageUrl: "",
-          page: "library"
-        };
-      }
-    }
-  }
   return null;
 }
 async function setSetting(options) {
   const { key, value } = options || {};
+  if (key === "audioQuality" && value !== "hires" && value !== "lossless") throw fail("unsupported", tr("The native core supports lossless and hires ALAC quality"));
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);
-  }
-  if (key === "mediaUserToken" && !cleanMediaUserToken(value)) {
-    if (typeof host !== "undefined" && host.storage) {
-      try {
-        await host.storage.remove("auth");
-      } catch {
-      }
-    }
-    return;
   }
   if (key === "displayName" && typeof host !== "undefined" && host.storage) {
     try {
@@ -3615,10 +2882,7 @@ async function setSetting(options) {
     return;
   }
   if (key === "audioQuality") {
-    const mode = parseAudioQualitySetting(value);
-    if (mode) {
-      await syncMusicAppAudioQuality(mode);
-    }
+    await nativeCommand("quality", { quality: value });
   }
 }
 export {
@@ -3627,23 +2891,10 @@ export {
   album,
   artist,
   browse,
-  buildDevicesScript,
-  buildPauseScript,
-  buildPlayScript,
-  buildReadAudioQualityScript,
-  buildResumeScript,
-  buildSeekScript,
-  buildSelectDeviceScript,
-  buildStateScript,
-  buildVolumeScript,
-  buildWriteAudioQualityScript,
   createPlaylist,
   dedupeLibraryAlbums,
-  escapeAppleScriptString,
-  extractCatalogStoreId,
   fail,
   formatArtworkUrl,
-  formatAudioQualityLabel,
   getDeveloperToken,
   getStorefront,
   home,
@@ -3657,12 +2908,10 @@ export {
   mapTrack,
   openInAppleMusic,
   parseAppleTTML,
-  parseAudioQualitySetting,
   parseTtmlTimestamp,
   played,
   playlist,
   playlists,
-  readMusicAppAudioQuality,
   recent,
   registerNaturalTrackOrder,
   remoteDevices,
@@ -3683,8 +2932,5 @@ export {
   stationNext,
   stations,
   stream,
-  suggest,
-  syncMusicAppAudioQuality,
-  toMusicAppUrl,
-  toPlayStoreIdUrl
+  suggest
 };

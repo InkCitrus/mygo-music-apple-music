@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "0.2.7",
+  "version": "0.4.0",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -20,8 +20,7 @@
       "lrclib.net"
     ],
     "process": [
-      "/usr/bin/osascript",
-      "osascript"
+      "bin/apple-music-core-*"
     ]
   },
   "requestHeaders": [
@@ -59,15 +58,9 @@
       "help": "Custom name shown in greeting and sidebar if your Apple Music profile has no nickname."
     },
     {
-      "key": "crossfadeTip",
-      "label": "Crossfade Recommendation",
-      "help": "Recommended: In macOS Music.app > Settings > Playback, disable 'Crossfade Songs' to allow MyGo Music to manage gapless track transitions."
-    },
-    {
-      "key": "mediaUserToken",
-      "label": "Media User Token (Optional)",
-      "help": "Click Sign In to authenticate via browser window, or paste your media-user-token cookie from music.apple.com here.",
-      "link": "https://music.apple.com"
+      "key": "audioQuality",
+      "label": "Native Audio Quality",
+      "help": "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Radio and uploaded songs are currently unavailable. Output follows system audio settings."
     }
   ],
   "navigation": [

@@ -3,6 +3,7 @@
  * Conforms to MyGo Music engine host specifications.
  */
 
+import { nativeProcess } from "./native_process.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -140,6 +141,12 @@ export class MockHost {
     this._webSignInBehavior = behavior;
   }
 
+  _setNativeSessionBehavior(behavior) { this._nativeSessionBehavior = behavior; }
+
+  _setNativeAuthBehavior(behavior) { this._nativeAuthBehavior = behavior; }
+
+  _setNativeBehavior(behavior) { this._nativeBehavior = behavior; }
+
   _setProcessGranted(granted) {
     this._processGranted = Boolean(granted);
   }
@@ -159,6 +166,8 @@ export class MockHost {
 
     const record = { command, args: [...args], stdin: "", killed: false };
     this._spawnHistory.push(record);
+
+    if (command.includes("apple-music-core-")) return nativeProcess(this, record);
 
     let outputLines = ["OK"];
     let stderrText = "";

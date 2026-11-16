@@ -1,0 +1,9 @@
+Apple Music Native Core
+Source: https://github.com/InkCitrus/apple-music-native-core (private review repository)
+
+New orchestration code: MIT. ALAC decoder: Apple Apache 2.0.
+mp4ff: MIT. miniaudio: see original dual-license notice.
+Adam native client: MIT; libhybris/Android loader components retain their original LGPL/BSD/Apache and other file-level notices.
+
+Full notices, license texts and corresponding source are packaged in bin/core-source.tar.gz and bin/core-licenses/.
+Apple proprietary SDK binaries are not included in this plugin package; they are downloaded separately with pinned checksums.

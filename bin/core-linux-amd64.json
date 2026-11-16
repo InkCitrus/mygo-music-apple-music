@@ -1,0 +1,12 @@
+{
+  "protocol": 1,
+  "coreSHA256": "95d3cbd7dca509b2e846dc9dede9e7af5f58c563d2f36570f38216fe58edc9bd",
+  "nativeFiles": {
+    "libdrm_client.so": "07e74096ef69fd914d25b6345b5a1169f53ff959434905a054fa9919729ac0a2",
+    "native-helper": "06d355ea701963084aab44bf3c3a44a1897f4b12250a0bfcaa13be45a5df4f10",
+    "rootfs/system/lib64/libOpenSLES.so": "9f5b9209e1e2a5b903e863382f71b2b837cc80e55342c60fe5d93992e01f05da",
+    "rootfs/system/lib64/libandroid.so": "5550fb751df008888bd2cb4df01928d39a79f80eeb45060120e6ef1580de67c9",
+    "rootfs/system/lib64/libdl.so": "f8be2513866f3c020d151ff4f8b57926561d5c5fc32a4a7b27f905ef92c198f0"
+  },
+  "sourceCommit": "eac2e9d1ada1668af4d5060af812708c3ac2be48"
+}

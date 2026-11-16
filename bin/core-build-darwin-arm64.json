@@ -1,0 +1,39 @@
+{
+  "repository": "https://github.com/InkCitrus/apple-music-native-core",
+  "commit": "eac2e9d1ada1668af4d5060af812708c3ac2be48",
+  "sourceDirty": false,
+  "protocol": 1,
+  "dependencySources": {
+    "android-linker": "1ac3ea6c1cf4f73a84d73f0bff510fba94a7d0f2",
+    "android-libc-shim": "ff7303254cb7a4e4f3fb11216c9aea35674aee8b",
+    "mc-logger": "6cd91de7228bb41f29efa6b0da0ec60ccb56397a",
+    "mc-epoll-shim": "88650b21c97a6fffdffdc88545c178a2e690466f",
+    "mc-elf-header": "c08b775e59f84f6dec0afc143cac70d1b454116c"
+  },
+  "dependencySourceFilter": "upstream tests, benchmarks and prebuilt binaries omitted",
+  "sha256": {
+    "LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
+    "THIRD_PARTY.md": "7b8f5dc915d96e0776e55a4bb6bb8862e6c33e82b4fa0ebdeab74dafde644fd0",
+    "amcore": "b51bdefc6107438d8f4380b4069ba3e07d89742ecce1257fafa5b517b33d8e8f",
+    "corresponding-source.tar.gz": "72385378c2e73b1c54fd374b2609d08c4ed5be3dd02a7a7637b0e3208cfbfa02",
+    "licenses/LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
+    "licenses/LICENSE.Adam": "47f5b57f5f50098e9ec9391db6bcc2305f409b746cd8066c54647a4fbf0c8dbe",
+    "licenses/LICENSE.Apache2": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/LICENSE.Apple-ALAC": "a337314dd82d26791112c1e5a85725b2eb92f5b7e6f9102fa4eaa2903f77518f",
+    "licenses/LICENSE.BSD-2": "527f738966ca396cd5a68c1509390de2a780c6b614d9ee57f7544a6161938ed1",
+    "licenses/LICENSE.BSD-3": "4cc755ebac2f55565d6f77b027535bdc95dfe4e70e486161f6a91219e0f9eec6",
+    "licenses/LICENSE.BSD-4": "44b5f8478a0cbafec2e36b673aacf42d4a041f40801118453f8585c64404a32e",
+    "licenses/LICENSE.GPL3": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+    "licenses/LICENSE.ISC": "53ebfcc44f88a3ff4e54d154df8c22df21502bcbf5f84a050a5caa72dcfa5ed9",
+    "licenses/LICENSE.LGPLv21": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+    "licenses/LICENSE.MIT": "f9c4c77baa3828004ee54b8a4f2db2e88ed44a6237a493965bf551fac0fcb62d",
+    "licenses/LICENSE.miniaudio": "457f1b500e0adf6bc059edddfa78a2f62012e7c3bb43476c20e0bd23b25ba0eb",
+    "licenses/LICENSE.mp4ff": "bea4e5a13d04f33d2743929c91f5552bbac369212c9f8731bc8d70e919a96ef1",
+    "licenses/THIRD_PARTY.md": "7b8f5dc915d96e0776e55a4bb6bb8862e6c33e82b4fa0ebdeab74dafde644fd0",
+    "licenses/macos/android-linker.txt": "238446c747e74654ab4819f71e5be3f223605864897762e6df41047c370f0b5e",
+    "licenses/macos/mc-epoll-shim.txt": "9d06735b690d68e0953a704d0764f93608f5630237c8a5cb23679fe69f4a1b6b",
+    "licenses/macos/mc-logger.txt": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd",
+    "native/darwin-arm64/manifest.json": "749b2712c601e4f2eab01a5490d4f2a39b4bc9d64d523555f04154d01e88113e",
+    "native/darwin-arm64/native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
+  }
+}

@@ -1,60 +1,47 @@
 # Apple Music for MyGo Music
 
-简体中文 | [English](./README.md)
+[English](README.md) | 简体中文
 
-为 [MyGo Music](https://github.com/egoist/mygo-music) 打造的 Apple Music 插件 —— **无需 Apple 开发者账号**即可网页登录订阅账户，支持个人资料库与歌单、Apple 原生逐字卡拉 OK 歌词（含翻译），并通过受控联动 macOS 自带 `Music.app` 实现完整订阅曲目播放与 AirPlay 设备切换。
+0.4.0 将完整曲目播放统一交给 [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core)。macOS ARM64、Windows x64 和 Linux x64 使用同一套 ALAC 播放接口，无需后台浏览器或控制系统“音乐”应用。独立核心仓库目前为私有审阅状态。
 
-> [!NOTE]
-> 本插件与 Apple Inc. 无关，亦未获其背书。插件通过 Apple Music Web API 获取曲库与个人资料库数据，并在 macOS 上通过 AppleScript 控制内置“音乐 (`Music.app`)”完成正版 FairPlay 订阅音频播放。
+搜索、专辑、艺人、歌单、个人资料库、收藏、最近播放、个性化推荐、Apple TTML 逐字歌词及 LRCLIB 歌词回退继续由插件提供。播放核心负责原生订阅授权、ALAC 解码和系统音频输出。
 
-## 安装
+## 安装与迁移
 
-需要 **MyGo Music 0.1.8 及以上版本**，完整曲目播放需在 **macOS** 系统上使用（系统自带“音乐”应用已登录 Apple Music 订阅账号）。
+需要 MyGo Music 0.1.8+，并允许 Apple Music 插件启动外部程序。安装包必须同时包含 `dist/`、`plugin.json`、`locales/`、对应平台的 `bin/apple-music-core-*` 和 `bin/native/平台/`；仅构建 TypeScript 不会生成原生核心。
 
-点击下方协议链接一键安装：
+1. 安装对应平台的完整构建包，保留上述目录结构。
+2. 点击登录。首次使用会下载并校验原生运行库，随后在本机账号窗口中输入 Apple 账号、密码及验证码。账号信息只通过本机进程管道交给原生授权库。
+3. 有效订阅登录后即可播放曲库歌曲；输出设备通过系统声音设置选择。
 
-[mygo-music://install-plugin?repo=InkCitrus/mygo-music-apple-music](mygo-music://install-plugin?repo=InkCitrus/mygo-music-apple-music)
+原来的 Music.app、浏览器和插件网页登录会话不会自动迁移，需要通过新的原生入口登录一次。旧的 `playbackBackend` 与 Music.app 交叉渐变设置已移除。退出登录会停止播放并删除新核心专用的账号目录；运行库可以继续使用。
 
-或在 MyGo Music 的 **设置 > 插件 > +** 中粘贴仓库地址安装：
+macOS 要求 Apple Silicon 与 macOS 14+；Windows 使用 x64 原生构建；Linux 需要 x64、glibc 2.38+、ALSA/PulseAudio，登录窗口需要 `zenity` 或 `kdialog`。macOS Intel、Windows/Linux ARM64 暂不支持。
 
-[https://github.com/InkCitrus/mygo-music-apple-music](https://github.com/InkCitrus/mygo-music-apple-music)
+## 音质与功能范围
 
-### 启用与配置步骤
+设置 `audioQuality` 为 `hires`（默认）选择最高可用 ALAC 音质，`lossless` 选择不超过 48 kHz 的 ALAC；设置在下次播放或拖动时生效。核心不会静默降级为 AAC 或试听片段。
 
-1. 打开 **设置 > 插件 > Apple Music**，开启 **允许此插件启动外部程序**（插件仅声明了 `/usr/bin/osascript` 权限，用于控制本机 `Music.app`）。
-2. 确保 macOS 系统自带的 **音乐 (`Music.app`)** 已登录你的 Apple Music 订阅账号。首次播放时若系统弹出“自动化”权限提示，请点击 **允许**。
-3. 点击插件页的 **登录 (Sign In)** 按钮，在弹出的 `music.apple.com` 窗口中登录你的 Apple 账号（也可在设置中手动粘贴 `media-user-token`），即可同步个人歌单、收藏、最近播放与逐字歌词。
+支持播放、暂停、继续、拖动、音量、静音和曲目状态；MyGo Music 管理队列和下一首。资料库歌曲需要能映射到曲库 ID。电台直播、自行上传且无曲库映射的歌曲、AirPlay 设备枚举、独占输出和跨曲无缝播放尚未实现。`stream()` 仅保留明确的试听接口，完整播放使用 `remote*` 钩子调用原生核心。
 
-## 登录说明
+此前核心实验已在三平台完成真实订阅 ALAC 24-bit/96 kHz 播放与拖动验证。提取后的核心和实际插件接口也已在 macOS 上通过真实订阅静音播放、暂停、音量、拖动和退出检查；该接口检查使用模拟的宿主进程接口及歌曲资料。完整 MyGo Music 窗口和新版 Windows/Linux 包仍需真实账号回归。源音质并不等于声卡最终输出格式，尚不宣称 bit-perfect。
 
-无需注册付费的 Apple Developer 开发者账号，也无需手动申请 MusicKit 私钥。点击 **登录** 后，插件会打开内置网页登录窗口并在本地保存 `media-user-token` 会话，同时自动识别你的订阅国家/地区（如 `cn`、`us`、`jp`，也可在插件设置中手动指定 Storefront 代码）。
+## 本地构建
 
-点击退出登录即可清除本地保存的会话凭据。
+先在对应系统构建独立核心，再同步完整构建目录：
 
-## 支持的功能
-
-- **未登录状态**：全曲库搜索与搜索联想建议、主页推荐与排行榜（热门歌曲 / 热门专辑 / 热门歌单）、专辑详情、艺人主页、官方精选歌单，以及基于 LRCLIB 的同步滚动歌词。
-- **已登录订阅账号**：个人资料库歌单（支持分页加载）、新建歌单与添加歌曲、喜欢的音乐、收藏的专辑、最近播放、个性化“为你推荐”、红心喜欢歌曲、收藏专辑，以及 Apple Music 官方 TTML **逐字音节歌词与双语翻译**。
-- **完整曲目播放 (macOS)**：无缝控制 macOS 原生 `Music.app`（播放、暂停、继续、拖动进度条、音量调节、列表自动切歌，以及 **AirPlay 扬声器/耳机切换**）。资料库内曲目支持毫秒级直连秒播，曲库流媒体曲目通过 `music://` 协议唤醒播放并自动保持 MyGo Music 窗口焦点。
-- **多语言界面**：完整支持简体中文 (`zh-CN`) 与英文界面。
-
-## 播放原理说明
-
-Apple Music 完整流媒体受商业级 FairPlay Streaming DRM 硬件加密保护，非苹果商业签名的第三方内核无法直接解密音频流。本插件遵循 MyGo Music 官方提供的 `"playback": "remote"` 远程播放架构，在后台通过 `/usr/bin/osascript` 驱动 macOS 原生 `Music.app` 解码输出，既能享受正版无损/高品质音频与原生 AirPlay 生态，又能在 MyGo Music 中统一完成搜索、歌单管理、队列切歌与逐字歌词展示。
-
-## 歌词支持
-
-登录后优先从 Apple Music 官方 `/syllable-lyrics` 与 `/lyrics` 接口获取 TTML 逐字时间轴歌词及翻译；若曲目无官方歌词或未登录，则自动回退至 [LRCLIB](https://lrclib.net) 获取同步 LRC 歌词。
-
-## 本地开发与测试
-
-```bash
-npm install
+```sh
+python3 /path/to/apple-music-native-core/scripts/build.py
+python3 /path/to/apple-music-native-core/scripts/bundle_sources.py
+python3 scripts/sync_core.py /path/to/apple-music-native-core/build/bundle
+npm ci
 npm run typecheck
 npm run build
 npm test
 ```
 
-## 开源协议
+构建核心需要 Go、C/C++ 工具链和 Python；播放不需要安装 Python。Windows 核心必须用原生 MSYS2 UCRT64 GCC 构建，保留已验证的 Windows 栈配置及 v8 TLS 修复。
 
-[MIT](./LICENSE)
+新核心提供 Go 库与有版本号的 JSONL 接口，其他程序无需依赖 MyGo Music，见独立仓库的 `docs/PROTOCOL.md` 和调用示例。插件只通过私有标准输入/输出连接自己的子进程，不开放网络控制端口。
+
+插件自身采用 MIT 协议；核心及其依赖的授权说明和对应源代码位于 `bin/` 的声明及源码包中。Apple 运行库单独下载，不随源码仓库分发。本项目与 Apple Inc. 无关联。

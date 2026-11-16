@@ -402,7 +402,7 @@ describe("Milestone M4 Adversarial Vector 3: Network Fault Tolerance (requestApi
   });
 
   test("3.1.10: intentional plugin error with code 'unsupported' is preserved", async () => {
-    host.webSignIn = undefined;
+    host.platform="darwin";host.arch="amd64";
     await assertRejects(() => plugin.signIn(), "unsupported");
   });
 
@@ -431,48 +431,48 @@ describe("Milestone M4 Adversarial Vector 4: Dialog Cancellation (signIn)", () =
     network.uninstall();
   });
 
-  test("4.1.1: webSignIn rejecting with modal closed error throws code 'signIn'", async () => {
-    host._setWebSignInBehavior(async () => {
+  test("4.1.1: native sign-in rejecting with modal closed error throws code 'signIn'", async () => {
+    host._setNativeAuthBehavior(async () => {
       throw new Error("User closed sign-in window");
     });
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 
-  test("4.1.2: webSignIn rejecting with cancellation code ('CANCELLED') throws code 'signIn'", async () => {
-    host._setWebSignInBehavior(async () => {
+  test("4.1.2: native sign-in rejecting with a normalized cancellation code throws code 'signIn'", async () => {
+    host._setNativeAuthBehavior(async () => {
       const cancelErr = new Error("Dialog cancelled");
-      cancelErr.code = "CANCELLED";
+      cancelErr.code = "signIn";
       throw cancelErr;
     });
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 
-  test("4.1.3: webSignIn resolving with null result throws code 'signIn'", async () => {
-    host._setWebSignInBehavior(async () => null);
+  test("4.1.3: native sign-in resolving with null result throws code 'signIn'", async () => {
+    host._setNativeSessionBehavior(async () => null);
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 
-  test("4.1.4: webSignIn resolving with empty cookie string throws code 'signIn'", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: "" }));
+  test("4.1.4: native sign-in resolving with empty cookie string throws code 'signIn'", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: "" }));
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 
-  test("4.1.5: webSignIn resolving with cookie missing media-user-token throws code 'signIn'", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: "itua=us; itspod=1" }));
+  test("4.1.5: native sign-in resolving with cookie missing media-user-token throws code 'signIn'", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: "itua=us; itspod=1" }));
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 
-  test("4.1.6: webSignIn resolving with empty media-user-token value throws code 'signIn'", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: "media-user-token=; itua=us" }));
+  test("4.1.6: native sign-in resolving with empty media-user-token value throws code 'signIn'", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: "media-user-token=; itua=us" }));
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 
-  test("4.1.7: webSignIn when host.webSignIn is undefined throws code 'unsupported'", async () => {
-    host.webSignIn = undefined;
+  test("4.1.7: native sign-in on an unsupported architecture throws code 'unsupported'", async () => {
+    host.platform="darwin";host.arch="amd64";
     await assertRejects(() => plugin.signIn(), "unsupported");
   });
 
-  test("4.1.8: webSignIn when host is undefined throws code 'unsupported'", async () => {
+  test("4.1.8: native sign-in when host is undefined throws code 'unsupported'", async () => {
     delete globalThis.host;
     try {
       await assertRejects(() => plugin.signIn(), "unsupported");
@@ -597,8 +597,8 @@ describe("Milestone M4 Adversarial Vector 5: Localization Parity (zh-CN)", () =>
     }
   });
 
-  test("5.1.6: webSignIn cancellation throws localized error '登录窗口在完成登录前被关闭' when host language is 'zh-CN'", async () => {
-    host._setWebSignInBehavior(async () => {
+  test("5.1.6: native sign-in cancellation throws localized error '请通过本机账号窗口登录' when host language is 'zh-CN'", async () => {
+    host._setNativeAuthBehavior(async () => {
       throw new Error("Window closed");
     });
     try {
@@ -606,7 +606,7 @@ describe("Milestone M4 Adversarial Vector 5: Localization Parity (zh-CN)", () =>
       assert(false, "Should have thrown");
     } catch (err) {
       assertEquals(err.code, "signIn");
-      assertEquals(err.message, "登录窗口在完成登录前被关闭");
+      assertEquals(err.message, "请通过本机账号窗口登录");
     }
   });
 
@@ -617,8 +617,8 @@ describe("Milestone M4 Adversarial Vector 5: Localization Parity (zh-CN)", () =>
     await assertRejects(() => plugin.stream({ id: "" }), "unavailable");
   });
 
-  test("5.1.8: webSignIn error code is 'signIn' in zh-CN", async () => {
-    host._setWebSignInBehavior(async () => null);
+  test("5.1.8: native sign-in error code is 'signIn' in zh-CN", async () => {
+    host._setNativeSessionBehavior(async () => null);
     await assertRejects(() => plugin.signIn(), "signIn");
   });
 });

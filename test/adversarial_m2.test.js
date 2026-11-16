@@ -20,7 +20,7 @@ import { createHost } from "./harness/host.js";
 import { createNetwork } from "./harness/network.js";
 import { loadPlugin } from "./harness/plugin_loader.js";
 
-describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
+describe("Milestone M2 Adversarial Vector 1: Subscriber Token Normalization", () => {
   let host;
   let network;
   let plugin;
@@ -38,40 +38,40 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
   });
 
   // 1.1 Non-string and missing cookie results
-  test("1.1.1: webSignIn returning null result throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => null);
+  test("1.1.1: native session returning null result throws signIn code", async () => {
+    host._setNativeSessionBehavior(async () => null);
     await assertRejects(() => plugin.signIn(), "signIn", "null result must throw signIn");
   });
 
-  test("1.1.2: webSignIn returning empty object throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({}));
+  test("1.1.2: native session returning empty object throws signIn code", async () => {
+    host._setNativeSessionBehavior(async () => ({}));
     await assertRejects(() => plugin.signIn(), "signIn", "empty object must throw signIn");
   });
 
-  test("1.1.3: webSignIn returning cookie: null throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: null }));
+  test("1.1.3: native session returning mediaUserToken: null throws signIn code", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: null }));
     await assertRejects(() => plugin.signIn(), "signIn", "null cookie must throw signIn");
   });
 
-  test("1.1.4: webSignIn returning cookie: '' (empty string) throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: "" }));
+  test("1.1.4: native session returning mediaUserToken: '' (empty string) throws signIn code", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: "" }));
     await assertRejects(() => plugin.signIn(), "signIn", "empty cookie string must throw signIn");
   });
 
-  test("1.1.5: webSignIn returning numeric cookie throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: 12345 }));
+  test("1.1.5: native session returning numeric cookie throws signIn code", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: 12345 }));
     await assertRejects(() => plugin.signIn(), "signIn", "numeric cookie must throw signIn");
   });
 
-  test("1.1.6: webSignIn returning object cookie throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({ cookie: { token: "abc" } }));
+  test("1.1.6: native session returning object cookie throws signIn code", async () => {
+    host._setNativeSessionBehavior(async () => ({ mediaUserToken: { token: "abc" } }));
     await assertRejects(() => plugin.signIn(), "signIn", "object cookie must throw signIn");
   });
 
   // 1.2 Double-quoted tokens
   test("1.2.1: double-quoted token is unquoted and saved cleanly", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: 'media-user-token="valid_quoted_token_abc_123"',
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: 'media-user-token="valid_quoted_token_abc_123"',
     }));
     const acct = await plugin.signIn();
     assertTruthy(acct, "signIn should succeed with quoted token");
@@ -80,8 +80,8 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
   });
 
   test("1.2.2: double-quoted token with other cookies is extracted without quotes", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: 'itua=us; media-user-token="quoted_middle_token"; itspod=1',
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: 'itua=us; media-user-token="quoted_middle_token"; itspod=1',
     }));
     await plugin.signIn();
     const stored = await host.storage.get("auth");
@@ -89,45 +89,45 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
   });
 
   test("1.2.3: empty double-quoted token ('\"\"') throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: 'media-user-token=""',
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: 'media-user-token=""',
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "empty quotes must throw signIn");
   });
 
   test("1.2.4: whitespace-only inside double quotes ('\"   \"') throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: 'media-user-token="   "',
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: 'media-user-token="   "',
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "whitespace inside quotes must throw signIn");
   });
 
   // 1.3 Empty & whitespace-only tokens
   test("1.3.1: empty token without semicolon ('media-user-token=') throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token=",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token=",
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "empty token must throw signIn");
   });
 
   test("1.3.2: empty token with trailing semicolon ('media-user-token=; itua=us') throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token=; itua=us",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token=; itua=us",
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "empty token before semicolon must throw signIn");
   });
 
   test("1.3.3: spaces-only token ('media-user-token=   ; itua=us') throws signIn code", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token=   ; itua=us",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token=   ; itua=us",
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "spaces token must throw signIn");
   });
 
   // 1.4 Collision tokens & prefix / suffix attacks
   test("1.4.1: prefix_media-user-token does NOT hijack media-user-token", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "fake_prefix_media-user-token=malicious_fake; media-user-token=authentic_token_123",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "fake_prefix_media-user-token=malicious_fake; media-user-token=authentic_token_123",
     }));
     await plugin.signIn();
     const stored = await host.storage.get("auth");
@@ -135,22 +135,22 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
   });
 
   test("1.4.2: not-media-user-token at beginning does not match", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "not-media-user-token=malicious_fake; itua=us",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "not-media-user-token=malicious_fake; itua=us",
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "not-media-user-token must not match");
   });
 
   test("1.4.3: media-user-token-backup does not match when real token is absent", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token-backup=backup_token; itua=us",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token-backup=backup_token; itua=us",
     }));
     await assertRejects(() => plugin.signIn(), "signIn", "media-user-token-backup must not match");
   });
 
   test("1.4.4: media-user-token followed by media-user-token-backup extracts true token", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token=true_token; media-user-token-backup=backup_token",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token=true_token; media-user-token-backup=backup_token",
     }));
     await plugin.signIn();
     const stored = await host.storage.get("auth");
@@ -158,8 +158,8 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
   });
 
   test("1.4.5: duplicate media-user-token extracts first valid token without corruption", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token=primary_token; other=1; media-user-token=secondary_token",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token=primary_token; other=1; media-user-token=secondary_token",
     }));
     await plugin.signIn();
     const stored = await host.storage.get("auth");
@@ -168,8 +168,8 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
 
   // 1.5 Special characters and base64 padding
   test("1.5.1: base64 token with '=' padding is preserved intact", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "media-user-token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig==; itua=us",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "media-user-token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig==; itua=us",
     }));
     await plugin.signIn();
     const stored = await host.storage.get("auth");
@@ -181,8 +181,8 @@ describe("Milestone M2 Adversarial Vector 1: Hostile Cookie Parsing", () => {
   });
 
   test("1.5.2: token surrounded by spaces inside cookie is trimmed properly", async () => {
-    host._setWebSignInBehavior(async () => ({
-      cookie: "itua=us; media-user-token=  trimmed_token_456  ; itspod=1",
+    host._setNativeSessionBehavior(async () => ({
+      mediaUserToken: "itua=us; media-user-token=  trimmed_token_456  ; itspod=1",
     }));
     await plugin.signIn();
     const stored = await host.storage.get("auth");

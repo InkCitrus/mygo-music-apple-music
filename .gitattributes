@@ -1,0 +1,7 @@
+* text=auto eol=lf
+# Preserve verified native bundles and verbatim upstream license texts.
+bin/apple-music-core-* -text
+bin/*.dll -text
+bin/native/** -text -whitespace
+bin/core-licenses/** -text -whitespace
+bin/core-source.tar.gz -text

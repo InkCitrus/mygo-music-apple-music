@@ -98,13 +98,11 @@ describe("Tier 4: Real-World Workload Scenarios", () => {
     let userAccount = await plugin.account();
     assertEquals(userAccount, null, "initial account should be null");
 
-    // 2. User clicks Sign In -> host.webSignIn opens ephemeral webview
+    // 2. User clicks Sign In -> native core opens a local account dialog
     let windowClosed = false;
-    host._setWebSignInBehavior(async (opts) => {
+    host._setNativeAuthBehavior(async (opts) => {
       // Simulate user logging in on music.apple.com
-      return {
-        cookie: "media-user-token=authenticated_sub_token_2026; itua=us; itspod=1",
-      };
+      return "authenticated_sub_token_2026";
     });
 
     const signedInAccount = await plugin.signIn();
@@ -190,10 +188,8 @@ describe("Tier 4: Real-World Workload Scenarios", () => {
     assertEquals(authAfterExpiry, undefined);
 
     // 3. Host triggers signIn re-login
-    host._setWebSignInBehavior(async () => {
-      return {
-        cookie: "media-user-token=fresh_rotated_token_2026; itua=us",
-      };
+    host._setNativeAuthBehavior(async () => {
+      return "fresh_rotated_token_2026";
     });
 
     await plugin.signIn();

@@ -4,7 +4,7 @@
  * Resolves target in order:
  * 1. process.env.PLUGIN_TARGET (explicit path)
  * 2. dist/index.js (compiled production bundle)
- * 3. test/harness/reference_plugin.js (authoritative oracle fallback)
+ * A compiled production bundle is required; there is no reference fallback.
  */
 
 import fs from "node:fs";
@@ -25,7 +25,7 @@ export function getPluginTargetPath() {
     return distPath;
   }
 
-  return path.resolve(__dirname, "reference_plugin.js");
+  throw new Error("Build the production plugin with npm run build before running tests");
 }
 
 export async function loadPlugin() {

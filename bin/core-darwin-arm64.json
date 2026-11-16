@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "coreSHA256": "b51bdefc6107438d8f4380b4069ba3e07d89742ecce1257fafa5b517b33d8e8f",
+  "nativeFiles": {
+    "native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
+  },
+  "sourceCommit": "eac2e9d1ada1668af4d5060af812708c3ac2be48"
+}

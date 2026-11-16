@@ -85,10 +85,10 @@ describe("Tier 1: Feature 1 - Manifest (plugin.json)", () => {
     assertIncludes(net, "*.mzstatic.com");
   });
 
-  test("1.4: playback is remote with process permissions for macOS Music.app", () => {
+  test("1.4: playback is remote with native core process permissions", () => {
     assertEquals(manifest.playback, "remote", "playback should be remote");
     assert(Array.isArray(manifest.permissions.process), "permissions.process must be an array");
-    assertIncludes(manifest.permissions.process, "/usr/bin/osascript");
+    assertIncludes(manifest.permissions.process, "bin/apple-music-core-*");
   });
 
   test("1.5: settings and navigation are defined with required properties", () => {
@@ -540,76 +540,22 @@ describe("Tier 1: Feature 9 - Audio Stream Resolution (stream)", () => {
   });
 });
 
-describe("Tier 1: Feature 10 - Web Sign-In (webSignIn)", () => {
-  let host;
-  let network;
-  let plugin;
-
-  beforeEach(async () => {
-    host = createHost();
-    globalThis.host = host;
-    network = createNetwork();
-    network.install();
-    plugin = await loadPlugin();
-  });
-
-  afterEach(() => {
-    network.uninstall();
-  });
-
-  test("10.1: signIn invokes host.webSignIn targeting music.apple.com", async () => {
-    let capturedOptions = null;
-    host._setWebSignInBehavior(async (opts) => {
-      capturedOptions = opts;
-      return { cookie: "media-user-token=test_token_123; itua=us" };
-    });
-
+describe("Tier 1: Feature 10 - Native Account Sign-In", () => {
+  let host, network, plugin;
+  beforeEach(async () => { host=createHost();globalThis.host=host;network=createNetwork();network.install();plugin=await loadPlugin(); });
+  afterEach(() => network.uninstall());
+  test("10.1: signs in through the private native core pipe", async () => {
     await plugin.signIn();
-    assertTruthy(capturedOptions, "webSignIn must have been called");
-    assertIncludes(capturedOptions.url, "music.apple.com");
+    const calls=host._getSpawnHistory();
+    assertEquals(calls.length,1);
+    assertIncludes(calls[0].command,"apple-music-core-darwin-arm64");
+    assertIncludes(calls[0].stdin,'"method":"auth"');
+    assertIncludes(calls[0].stdin,'"method":"session"');
+    assert(!calls[0].stdin.includes("password"));
   });
-
-  test("10.2: specifies cookiesOf for https://music.apple.com", async () => {
-    let capturedOptions = null;
-    host._setWebSignInBehavior(async (opts) => {
-      capturedOptions = opts;
-      return { cookie: "media-user-token=test_token_123; itua=us" };
-    });
-
-    await plugin.signIn();
-    assertEquals(capturedOptions.cookiesOf, "https://music.apple.com");
-  });
-
-  test("10.3: specifies until containing 'media-user-token'", async () => {
-    let capturedOptions = null;
-    host._setWebSignInBehavior(async (opts) => {
-      capturedOptions = opts;
-      return { cookie: "media-user-token=test_token_123; itua=us" };
-    });
-
-    await plugin.signIn();
-    assertIncludes(capturedOptions.until, "media-user-token");
-  });
-
-  test("10.4: supplies platform-appropriate browser User-Agent", async () => {
-    let capturedOptions = null;
-    host._setWebSignInBehavior(async (opts) => {
-      capturedOptions = opts;
-      return { cookie: "media-user-token=test_token_123; itua=us" };
-    });
-
-    await plugin.signIn();
-    assertTruthy(capturedOptions.userAgent, "userAgent should be provided");
-    assertIncludes(capturedOptions.userAgent, "Mozilla/5.0");
-  });
-
-  test("10.5: handles user cancellation with clear rejection", async () => {
-    host._setWebSignInBehavior(new Error("The sign-in window was closed before you finished signing in"));
-    await assertRejects(
-      () => plugin.signIn(),
-      "closed",
-      "window closed must reject sign-in"
-    );
+  test("10.2: native account cancellation is a signIn error", async () => {
+    host._setNativeAuthBehavior(new Error("cancelled"));
+    await assertRejects(() => plugin.signIn(), error => assertEquals(error.code,"signIn"));
   });
 });
 
@@ -822,7 +768,7 @@ describe("Tier 1: Feature 14 - Error Code Standards", () => {
   });
 
   test("14.4: unsupported host environment throws error with code 'unsupported'", async () => {
-    host.webSignIn = undefined;
+    host.platform = "darwin"; host.arch = "amd64";
     await assertRejects(
       () => plugin.signIn(),
       (err) => {
