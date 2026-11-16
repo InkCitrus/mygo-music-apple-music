@@ -29,5 +29,13 @@
   "error_rejected": "连接未能完成，请检查账号、密码和验证码后重试。",
   "error_unavailable": "暂时无法完成连接，请稍后再试。",
   "provider": "此账号连接窗口由 %@ 提供。",
-  "window_title": "%@ · 账号连接"
+  "window_title": "%@ · 账号连接",
+  "menu_quit": "退出 %@",
+  "menu_edit": "编辑",
+  "menu_undo": "撤销",
+  "menu_redo": "重做",
+  "menu_cut": "剪切",
+  "menu_copy": "拷贝",
+  "menu_paste": "粘贴",
+  "menu_select_all": "全选"
 }

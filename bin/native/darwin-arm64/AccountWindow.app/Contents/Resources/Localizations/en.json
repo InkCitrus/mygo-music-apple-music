@@ -29,5 +29,13 @@
   "error_rejected": "The connection was not completed. Check your account details and verification code.",
   "error_unavailable": "The connection could not be completed. Please try again later.",
   "provider": "Account connection provided by %@.",
-  "window_title": "%@ — Account connection"
+  "window_title": "%@ — Account connection",
+  "menu_quit": "Quit %@",
+  "menu_edit": "Edit",
+  "menu_undo": "Undo",
+  "menu_redo": "Redo",
+  "menu_cut": "Cut",
+  "menu_copy": "Copy",
+  "menu_paste": "Paste",
+  "menu_select_all": "Select All"
 }

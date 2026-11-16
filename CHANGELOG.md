@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+Restore standard macOS Edit commands in the native account window. Password, account and verification-code fields now accept paste (Command-V) and select-all (Command-A), including when password visibility is toggled. Clipboard handling stays with the native text editor. The standalone macOS demo uses the same commands; menu labels follow the English/Simplified Chinese locale.
+
 ## 1.0.0
 
 Desktop playback now uses Apple Music Native Core on macOS ARM64, Windows x64 and Linux x64. The plugin no longer drives Music.app or a browser. Catalog/library features and lyrics remain in the plugin; native authorization, ALAC decoding and audio output live in the independent core.

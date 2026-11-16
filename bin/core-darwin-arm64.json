@@ -1,13 +1,13 @@
 {
   "protocol": 1,
-  "coreSHA256": "3b035d1d3e3307fc7910fb1ccdf45c0a07399bf9dc7be000e44ec1c5c671d0a7",
+  "coreSHA256": "40f87adacff9ac4352c6f298bbe8879e3ae74381bd5bf23a33e4aaac19b9ca9c",
   "nativeFiles": {
-    "AccountWindow.app/Contents/Info.plist": "85b16a72afa9191a327b7b7938b79c4ab2a25c04465b7555dafaacd5bd7e3b68",
-    "AccountWindow.app/Contents/MacOS/account-ui": "fc0f5865dedafbd73ee991b31954efbcd0cec67cdb9a1ed007383c24be1b4048",
-    "AccountWindow.app/Contents/Resources/Localizations/en.json": "031486b30ae00d20221b6380eeda31e7bef62656eeea35e099f1b3fb86e3b2ba",
-    "AccountWindow.app/Contents/Resources/Localizations/zh-Hans.json": "290b9a89196eb1736ffb31560b87802252798db018305fce73abd10232af8399",
-    "AccountWindow.app/Contents/_CodeSignature/CodeResources": "84a0ba829455ca18a7b91b477bbc2563bbb06fd11acb8dd458c054e1eb2483ee",
+    "AccountWindow.app/Contents/Info.plist": "e5ddb5c3815e080905f6786c244f48dcdadd4658cffb189da23a8ab50591cc08",
+    "AccountWindow.app/Contents/MacOS/account-ui": "5ba6b1cde7b3cc986b5cc8a6d473282eeecd1f5fca1176b0fe3ce20d0a8757f9",
+    "AccountWindow.app/Contents/Resources/Localizations/en.json": "75b69d8f3dd4ba6cb21fae4f70e3e6554f009a07af06268220e38d779ad2b391",
+    "AccountWindow.app/Contents/Resources/Localizations/zh-Hans.json": "9a10943fdd4d3c45877fc7f49baad50dacad7f02f1ba1a69698a53ef166a460f",
+    "AccountWindow.app/Contents/_CodeSignature/CodeResources": "bd02c262daca8185c3ebdcfbc6ea18db7bd786513c379dc5b7f9565499f237f7",
     "native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
   },
-  "sourceCommit": "8e07a6de662c47c5444d49c978aae1427af55b52"
+  "sourceCommit": "66b9b6c18b10f9dc7967a96b23565991d5bf5695"
 }

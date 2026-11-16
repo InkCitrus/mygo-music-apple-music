@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/InkCitrus/apple-music-native-core",
-  "commit": "8e07a6de662c47c5444d49c978aae1427af55b52",
+  "commit": "66b9b6c18b10f9dc7967a96b23565991d5bf5695",
   "sourceDirty": false,
   "protocol": 1,
   "dependencySources": {},
@@ -8,9 +8,9 @@
   "sha256": {
     "LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
     "THIRD_PARTY.md": "7b8f5dc915d96e0776e55a4bb6bb8862e6c33e82b4fa0ebdeab74dafde644fd0",
-    "amcore": "c145d2b31b5af5213448f172b578163743347b9746d426cdbceb84ac3339be74",
-    "amcore-demo": "0b8c728954f9fb7a96a946b7038d36a473edadea283d596443152904728268f4",
-    "corresponding-source.tar.gz": "d65c6d58834d82418ec51925f93caa408f04a0d6b814c4667e56d3b2aced710b",
+    "amcore": "4a51ac7d117541e626aad0e53bfd0ce781040fefe047563b59992a1f3dd14ba1",
+    "amcore-demo": "e1617e63bed190d9ac0cdb0addc9dfc74324b2cc46fcfb3c7603787bd559c7fe",
+    "corresponding-source.tar.gz": "f1055ca4c343a3f058d17e39bf2c129d011d39e2d97743ed530496a595c40364",
     "licenses/LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
     "licenses/LICENSE.Adam": "47f5b57f5f50098e9ec9391db6bcc2305f409b746cd8066c54647a4fbf0c8dbe",
     "licenses/LICENSE.Apache2": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
