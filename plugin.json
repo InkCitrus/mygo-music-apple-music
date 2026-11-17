@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -60,7 +60,7 @@
     {
       "key": "audioQuality",
       "label": "Native Audio Quality",
-      "help": "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Radio and uploaded songs are currently unavailable. Output follows system audio settings."
+      "help": "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings."
     }
   ],
   "navigation": [

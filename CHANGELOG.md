@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+Reject unsupported live stations and empty or non-song station feeds before MyGo replaces its queue. Remove the old fallback that disguised a station as a zero-duration song. Failed station requests preserve the existing song, playback position and play/pause state; API errors keep their original meaning. Recommended stations that return playable catalog songs continue to work.
+
+Reject direct station playback before starting a new native play request, so it cannot cancel a song whose metadata is still loading. Add English and Simplified Chinese messages for unsupported stations. Native Core remains the exact 0.1.3 release.
+
 ## 1.0.2
 
 Fix native catalog playback for HLS playlists that declare FairPlay, PlayReady and Widevine keys together. Other DRM formats no longer overwrite the selected FairPlay key.

@@ -24,13 +24,22 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - name: Ensure generated core and JavaScript match the reviewed tree
-        run: git diff --exit-code -- bin dist
+      - name: Ensure generated core matches the reviewed tree
+        run: git diff --exit-code -- bin
+      - name: Ensure main includes the reviewed cloud-built JavaScript
+        if: github.ref == 'refs/heads/main'
+        run: git diff --exit-code -- dist
       - name: Package and verify every supported desktop bundle
         run: python3 scripts/package_release.py
       - uses: actions/upload-artifact@v4
         with:
           name: mygo-apple-music-release
           path: build/release/
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mygo-apple-music-javascript
+          path: dist/index.js
           retention-days: 14
           if-no-files-found: error

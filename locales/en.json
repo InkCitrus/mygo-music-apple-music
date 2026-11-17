@@ -83,5 +83,7 @@
   "This track, quality or platform is not supported": "This track, quality or platform is not supported",
   "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable": "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable",
   "The native core supports lossless and hires ALAC quality": "The native core supports lossless and hires ALAC quality",
-  "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Radio and uploaded songs are currently unavailable. Output follows system audio settings.": "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Radio and uploaded songs are currently unavailable. Output follows system audio settings."
+  "Live radio and radio shows are not supported by native playback yet": "Live radio and radio shows are not supported by native playback yet",
+  "This station has no playable catalog songs": "This station has no playable catalog songs",
+  "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings.": "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings."
 }

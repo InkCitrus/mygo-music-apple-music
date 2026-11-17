@@ -50,6 +50,86 @@ test("rejects unsupported architectures and unavailable track types without fall
   assert.equal(host._getOpenedURLs().length, 0);
 });
 
+for (const paused of [false, true]) {
+  test(`unsupported live station preserves the ${paused ? "paused" : "playing"} song`, async () => {
+    globalThis.host = createHost();
+    await plugin.remotePlay({ ids: ["901210"], position: 42000 });
+    await plugin.remoteVolume({ percent: 23 });
+    if (paused) await plugin.remotePause();
+    const before = await plugin.remoteState();
+    const previousCommands = commands(host).filter(c => c.method !== "state");
+    await assert.rejects(plugin.stationNext({ id: "ra.978194965" }), e => e.code === "unsupported");
+    await assert.rejects(plugin.remotePlay({ ids: ["ra.978194965"] }), e => e.code === "unsupported");
+    assert.deepEqual(await plugin.remoteState(), before);
+    assert.deepEqual(commands(host).filter(c => c.method !== "state"), previousCommands);
+    assert.equal(host._getOpenedURLs().length, 0);
+  });
+}
+
+test("empty and non-song station feeds cannot replace current playback", async () => {
+  globalThis.host = createHost();
+  await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
+  await plugin.remotePlay({ ids: ["901211"], position: 61000 });
+  const before = await plugin.remoteState();
+  for (const data of [[], [
+    { id: "ra.episode", type: "stations", attributes: { name: "Episode" } },
+    { id: "901212", type: "music-videos", attributes: { name: "Video" } },
+    { id: "i.unmapped-radio", type: "library-songs", attributes: { name: "Upload" } },
+  ]]) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ data }));
+    await assert.rejects(plugin.stationNext({ id: "ra.empty-fixture" }), e => e.code === "unsupported");
+    assert.deepEqual(await plugin.remoteState(), before);
+  }
+  assert.equal(commands(host).filter(c => c.method === "play").length, 1);
+});
+
+test("recommended stations return playable catalog songs and mapped library songs only", async () => {
+  globalThis.host = createHost();
+  await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: [
+    { id: "901213", type: "songs", attributes: { name: "Song" } },
+    { id: "i.radio-mapped", type: "library-songs", attributes: { name: "Library", playParams: { catalogId: "901214" } } },
+    { id: "ra.nested", type: "stations", attributes: { name: "Station" } },
+    { id: "901215", type: "music-videos", attributes: { name: "Video" } },
+  ] }));
+  const tracks = await plugin.stationNext({ id: "ra.recommended-fixture" });
+  assert.deepEqual(tracks.map(t => t.id), ["901213", "i.radio-mapped"]);
+  assert.equal(host._getSpawnHistory().length, 0);
+  await plugin.remotePlay({ ids: tracks.map(t => t.id), start: 1 });
+  assert.equal(commands(host).find(c => c.method === "play").params.trackId, "901214");
+  assert.equal((await plugin.remoteState()).trackId, "i.radio-mapped");
+});
+
+test("a station API error is retained instead of becoming a fake track", async () => {
+  globalThis.host = createHost();
+  await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
+  await plugin.remotePlay({ ids: ["901216"], position: 38000 });
+  const before = await plugin.remoteState();
+  globalThis.fetch = async () => new Response(JSON.stringify({ errors: [{ detail: "Fixture unavailable" }] }), { status: 503 });
+  await assert.rejects(plugin.stationNext({ id: "ra.failed-fixture" }), e => e.code === "unavailable" && e.message.includes("Fixture unavailable"));
+  assert.deepEqual(await plugin.remoteState(), before);
+});
+
+test("a rejected station does not cancel a song whose metadata is still loading", async () => {
+  globalThis.host = createHost();
+  let release, requested;
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { requested = resolve; });
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async (...args) => {
+    if (String(args[0]).includes("/songs/901217")) { requested(); await gate; }
+    return fetch(...args);
+  };
+  const song = plugin.remotePlay({ ids: ["901217"] });
+  await started;
+  try {
+    await assert.rejects(plugin.remotePlay({ ids: ["ra.978194965"] }), e => e.code === "unsupported");
+  } finally { release(); }
+  await song;
+  assert.deepEqual(commands(host).filter(c => c.method === "play").map(c => c.params.trackId), ["901217"]);
+  assert.equal((await plugin.remoteState()).trackId, "901217");
+});
+
 test("process permission failure is actionable", async () => {
   globalThis.host = createHost({ processGranted: false });
   await assert.rejects(plugin.remoteResume(), e => e.code === "setup");
