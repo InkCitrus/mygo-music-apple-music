@@ -14,7 +14,7 @@ export interface CachedTrackMeta {
 }
 
 type Pending = { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
-type Connection = { proc: ProcessHandle; owner: typeof host; pending: Map<number, Pending>; ready: Promise<void> };
+type Connection = { proc: ProcessHandle; owner: typeof host; pending: Map<number, Pending>; ready: Promise<void>; healthAt: number };
 let connection: Connection | null = null;
 let nextId = 0;
 let playGeneration = 0;
@@ -62,7 +62,7 @@ function connect(): Connection {
   let proc: ProcessHandle;
   try { proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`, "--language", host.language?.() || "en", "--app-name", "MyGo Music"]); }
   catch { throw error("setup", "Install the native playback bundle and allow this plugin to start programs"); }
-  const c: Connection = { proc, owner: host, pending: new Map(), ready: Promise.resolve() };
+  const c: Connection = { proc, owner: host, pending: new Map(), ready: Promise.resolve(), healthAt: 0 };
   connection = c;
   void (async () => {
     try {
@@ -108,6 +108,21 @@ export async function nativePlay(meta: CachedTrackMeta, position: number, genera
 export async function nativeState(): Promise<RemoteState | null> {
   if (!connection || loading) return null;
   const state = await nativeCommand("state");
+  const current = connection;
+  if (state?.outputStats && current && Date.now() >= current.healthAt) {
+    current.healthAt = Date.now() + 10_000;
+    try {
+      if (await current.owner.storage.get("native_playback_health_enabled") === true) {
+        const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+        await current.owner.storage.set("native_playback_health", {
+          sampledAt: Date.now(), status: ["buffering", "playing", "paused", "ended", "error"].includes(state.status) ? state.status : "unknown",
+          position: number(state.position), duration: number(state.duration),
+          sampleRate: number(state.format?.sampleRate), bits: number(state.format?.bits), outputRate: number(state.outputRate),
+          underruns: number(state.outputStats.underruns), queuedFrames: number(state.outputStats.queuedFrames), capacityFrames: number(state.outputStats.capacityFrames),
+        });
+      }
+    } catch { /* Optional, local health checks must not interrupt playback. */ }
+  }
   if (!state || ["idle", "ended"].includes(state.status)) return null;
   if (state.status === "error") throw error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
   return {

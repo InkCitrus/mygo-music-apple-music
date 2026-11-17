@@ -3,9 +3,10 @@
 from pathlib import Path
 import argparse,hashlib,json,shutil,os
 ROOT=Path(__file__).resolve().parents[1]
-p=argparse.ArgumentParser();p.add_argument('bundle',type=Path);args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('bundle',type=Path);p.add_argument('--expected-commit');args=p.parse_args()
 source=args.bundle.resolve();native=source/'native'
 info=json.loads((source/'build-info.json').read_text()) if (source/'build-info.json').is_file() else None
+if args.expected_commit and (not info or info['commit']!=args.expected_commit or info['sourceDirty']):raise RuntimeError('Expected a clean pinned core commit')
 if info:
     for name,sha in info['sha256'].items():
         rel=Path(name)

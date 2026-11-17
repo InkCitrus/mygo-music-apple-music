@@ -22,9 +22,13 @@ Supported: Apple Silicon/macOS 14+, Windows x64, and Linux x64/glibc 2.38+ with 
 
 Play, pause, resume, seek, volume, mute and state polling use the same native interface on all supported desktops. MyGo Music owns queue order. Library songs require a catalog mapping. Live radio, uploaded-only tracks, AirPlay device enumeration, exclusive output and cross-track gapless output are not implemented. The separate `stream()` hook remains a preview-only API; full playback uses `remote*` hooks.
 
-The underlying prototype passed real subscriber ALAC 24-bit/96 kHz playback and seeking on the three target platforms. The extracted daemon and production plugin hooks also passed muted real-session playback, pause, volume, seek and shutdown checks on macOS, using simulated host process bindings and song metadata. The complete MyGo Music UI and new Windows/Linux packages still need real-account regression. Source format does not prove physical DAC format or bit-perfect output.
+The underlying prototype passed real subscriber ALAC 24-bit/96 kHz playback and seeking on the three target platforms. The 1.0.2 playback fixes were also exercised in the installed MyGo Music application on macOS, including continuous 24-bit/48 kHz playback and transition to 24-bit/96 kHz; the listener confirmed smooth playback. The current Windows/Linux packages pass cloud builds and automated checks but still need real-account listening regression. Source format does not prove physical DAC format or bit-perfect output.
 
-## Build
+## GitHub Actions builds
+
+The independent core is compiled, tested and packaged on GitHub Actions for each supported platform. This plugin's workflow downloads the exact public release recorded in `core-lock.json`, verifies its SHA-256 hashes, builds and tests the JavaScript, then packages all desktop bundles. It does not rebuild the core. Each artifact includes a build report comparing the embedded core and native resources with the upstream release. Pushes to `main` and manual workflow runs produce downloadable artifacts without account credentials or subscriber sessions.
+
+## Local development
 
 Build the independent core on the target OS and synchronize its complete bundle:
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2
+
+Fix native catalog playback for HLS playlists that declare FairPlay, PlayReady and Widevine keys together. Other DRM formats no longer overwrite the selected FairPlay key.
+
+Fetch one encrypted segment ahead and retain approximately two seconds of PCM at every source sample rate. This avoids segment-boundary stalls caused by serial network requests and buffers that became shorter at higher sample rates. Stop, seek and track replacement cancel the pending fetch.
+
+The plugin embeds the same platform binaries, native resources and source commit as Native Core 0.1.3. Output-health snapshots are opt-in and contain counters only. The fix was exercised in the installed MyGo application with the actual account and album, including continuous 24-bit/48 kHz playback and transition to 24-bit/96 kHz; the listener confirmed smooth playback. Radio playback remains unsupported.
+
 ## 1.0.1
 
 Restore standard macOS Edit commands in the native account window. Password, account and verification-code fields now accept paste (Command-V) and select-all (Command-A), including when password visibility is toggled. Clipboard handling stays with the native text editor. The standalone macOS demo uses the same commands; menu labels follow the English/Simplified Chinese locale.

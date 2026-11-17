@@ -78,7 +78,7 @@ function connect() {
   } catch {
     throw error("setup", "Install the native playback bundle and allow this plugin to start programs");
   }
-  const c = { proc, owner: host, pending: /* @__PURE__ */ new Map(), ready: Promise.resolve() };
+  const c = { proc, owner: host, pending: /* @__PURE__ */ new Map(), ready: Promise.resolve(), healthAt: 0 };
   connection = c;
   void (async () => {
     try {
@@ -140,6 +140,28 @@ async function nativePlay(meta, position, generation) {
 async function nativeState() {
   if (!connection || loading) return null;
   const state = await nativeCommand("state");
+  const current = connection;
+  if (state?.outputStats && current && Date.now() >= current.healthAt) {
+    current.healthAt = Date.now() + 1e4;
+    try {
+      if (await current.owner.storage.get("native_playback_health_enabled") === true) {
+        const number = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+        await current.owner.storage.set("native_playback_health", {
+          sampledAt: Date.now(),
+          status: ["buffering", "playing", "paused", "ended", "error"].includes(state.status) ? state.status : "unknown",
+          position: number(state.position),
+          duration: number(state.duration),
+          sampleRate: number(state.format?.sampleRate),
+          bits: number(state.format?.bits),
+          outputRate: number(state.outputRate),
+          underruns: number(state.outputStats.underruns),
+          queuedFrames: number(state.outputStats.queuedFrames),
+          capacityFrames: number(state.outputStats.capacityFrames)
+        });
+      }
+    } catch {
+    }
+  }
   if (!state || ["idle", "ended"].includes(state.status)) return null;
   if (state.status === "error") throw error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
   return {

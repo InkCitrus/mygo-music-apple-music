@@ -106,3 +106,21 @@ test("logout clears the native session and app catalog token", async () => {
   assert.equal(await host.storage.get("native_developer_token"), undefined);
   assert.equal(await plugin.account(), null);
 });
+
+test("output health is opt-in and never copies arbitrary core fields", async () => {
+  const state = { status: "playing", trackId: "901001", position: 20000, duration: 100000, volume: 12,
+    format: { sampleRate: 96000, bits: 24 }, outputRate: 48000,
+    outputStats: { underruns: 0, queuedFrames: 180000, capacityFrames: 192000, privateValue: "DO_NOT_COPY" },
+    mediaUserToken: "DO_NOT_COPY", mediaURL: "DO_NOT_COPY" };
+  for (const enabled of [false, true]) {
+    plugin.resetRemoteSession(); globalThis.host = createHost();
+    if (enabled) await host.storage.set("native_playback_health_enabled", true);
+    host._setNativeBehavior(request => request.method === "hello" ? { protocol: 1 } : state);
+    await plugin.remotePlay({ ids: ["901001"] }); await plugin.remoteState();
+    const health = await host.storage.get("native_playback_health");
+    if (!enabled) { assert.equal(health, undefined); continue; }
+    assert.equal(health.underruns, 0); assert.equal(health.sampleRate, 96000);
+    assert.ok(!JSON.stringify(health).includes("DO_NOT_COPY"));
+    assert.ok(!("trackId" in health));
+  }
+});
