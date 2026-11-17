@@ -83,7 +83,7 @@
   "This track, quality or platform is not supported": "暂不支持此曲目、音质或平台",
   "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable": "原生播放目前支持曲库歌曲，暂不支持电台和自行上传的歌曲",
   "The native core supports lossless and hires ALAC quality": "原生核心支持 lossless 和 hires 两种 ALAC 音质",
-  "Live radio and radio shows are not supported by native playback yet": "原生播放暂不支持直播电台和电台节目",
   "This station has no playable catalog songs": "该电台没有可供原生播放的曲库歌曲",
-  "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings.": "hires：最高可用 ALAC 音质；lossless：不超过 48 kHz 的 ALAC。暂不支持直播电台和自行上传的歌曲，输出遵循系统声音设置。"
+  "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings.": "hires：最高可用 ALAC 音质；lossless：不超过 48 kHz 的 ALAC。暂不支持直播电台和自行上传的歌曲，输出遵循系统声音设置。",
+  "Live radio and radio shows are not supported yet": "暂不支持直播电台和电台节目"
 }

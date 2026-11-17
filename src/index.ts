@@ -2518,7 +2518,10 @@ export async function stations(): Promise<Station[]> {
   const add = (st: Station) => {
     if (!st.id || seenIds.has(st.id)) return;
     seenIds.add(st.id);
-    result.push(st);
+    result.push({
+      ...st,
+      description: [tr("Live radio and radio shows are not supported yet"), st.description].filter(Boolean).join(" · "),
+    });
   };
 
   // 1. Primary Apple Music Flagship Live Broadcast Radio Stations
@@ -2599,7 +2602,7 @@ export async function stationNext(options: { id: string }): Promise<Track[]> {
   const id = String(options?.id || "").trim();
   if (!id) throw fail("unavailable", "Station id required");
   if (APPLE_MUSIC_LIVE_STATIONS.some(st => st.id === id)) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported by native playback yet"));
+    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
   }
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   const json = await requestApi(
@@ -2699,7 +2702,7 @@ export async function remotePlay(options: { ids: string[]; start?: number; posit
   const targetId = ids[start];
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
   if (String(targetId).trim().startsWith("ra.")) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported by native playback yet"));
+    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
   }
   const generation = beginNativePlay();
   try {

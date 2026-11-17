@@ -2419,45 +2419,24 @@ async function stations() {
 async function stationNext(options) {
   const id = String(options?.id || "").trim();
   if (!id) throw fail("unavailable", "Station id required");
+  if (APPLE_MUSIC_LIVE_STATIONS.some((st) => st.id === id)) {
+    throw fail("unsupported", tr("Live radio and radio shows are not supported by native playback yet"));
+  }
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
-  let items = [];
-  try {
-    const json = await requestApi(
-      `/me/stations/next-tracks/${encodeURIComponent(id)}?limit=10&l=${encodeURIComponent(lang)}`,
-      {
-        method: "POST",
-        requireAuth: true
-      }
-    );
-    items = Array.isArray(json?.data) ? json.data : [];
-  } catch {
+  const json = await requestApi(
+    `/me/stations/next-tracks/${encodeURIComponent(id)}?limit=10&l=${encodeURIComponent(lang)}`,
+    { method: "POST", requireAuth: true }
+  );
+  const items = Array.isArray(json?.data) ? json.data : [];
+  const tracks = items.filter((item) => {
+    if (!["songs", "library-songs"].includes(item?.type)) return false;
+    const catalogId = item?.attributes?.playParams?.catalogId || item?.relationships?.catalog?.data?.[0]?.id || item?.id;
+    return /^\d{1,24}$/.test(String(catalogId || "")) && Boolean(item?.attributes?.name);
+  }).map(mapTrack);
+  if (tracks.length === 0) {
+    throw fail("unsupported", tr("This station has no playable catalog songs"));
   }
-  if (items.length === 0) {
-    const sf = await getStorefront().catch(() => "jp");
-    const liveMatch = APPLE_MUSIC_LIVE_STATIONS.find((s) => s.id === id);
-    const stationName = liveMatch?.name || "Apple Music Radio";
-    const cleanSlug = stationName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const stationUrl = `https://music.apple.com/${sf}/station/${cleanSlug}/${encodeURIComponent(id)}`;
-    const fallbackTrack = {
-      id,
-      name: stationName,
-      artists: [{ id: "", name: "Apple Music Radio" }],
-      album: { id: "", name: "Live Broadcast", imageUrl: liveMatch?.imageUrl },
-      duration: 0,
-      url: stationUrl
-    };
-    trackMetaCache.set(id, {
-      id,
-      name: stationName,
-      artistName: "Apple Music Radio",
-      albumName: "",
-      durationMs: 0,
-      url: stationUrl,
-      imageUrl: liveMatch?.imageUrl
-    });
-    return [fallbackTrack];
-  }
-  return items.map(mapTrack);
+  return tracks;
 }
 async function lyrics(options) {
   const id = String(options?.id || "").trim();
@@ -2518,6 +2497,9 @@ async function remotePlay(options) {
   const position = Math.max(0, Number(options?.position) || 0);
   const targetId = ids[start];
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
+  if (String(targetId).trim().startsWith("ra.")) {
+    throw fail("unsupported", tr("Live radio and radio shows are not supported by native playback yet"));
+  }
   const generation = beginNativePlay();
   try {
     const meta = await resolveTrackMeta(String(targetId));
