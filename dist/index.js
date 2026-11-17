@@ -2351,7 +2351,10 @@ async function stations() {
   const add = (st) => {
     if (!st.id || seenIds.has(st.id)) return;
     seenIds.add(st.id);
-    result.push(st);
+    result.push({
+      ...st,
+      description: [tr("Live radio and radio shows are not supported yet"), st.description].filter(Boolean).join(" \xB7 ")
+    });
   };
   const liveStationIds = APPLE_MUSIC_LIVE_STATIONS.map((s) => s.id).join(",");
   try {
@@ -2420,7 +2423,7 @@ async function stationNext(options) {
   const id = String(options?.id || "").trim();
   if (!id) throw fail("unavailable", "Station id required");
   if (APPLE_MUSIC_LIVE_STATIONS.some((st) => st.id === id)) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported by native playback yet"));
+    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
   }
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   const json = await requestApi(
@@ -2498,7 +2501,7 @@ async function remotePlay(options) {
   const targetId = ids[start];
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
   if (String(targetId).trim().startsWith("ra.")) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported by native playback yet"));
+    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
   }
   const generation = beginNativePlay();
   try {
