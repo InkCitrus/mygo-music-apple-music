@@ -44,7 +44,7 @@ def main():
         archives.append(target)
     (output/'SHA256SUMS.txt').write_text(''.join(digest(p)+'  '+p.name+'\n' for p in archives))
     revision=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
-    report={'pluginVersion':version,'pluginCommit':revision,'coreTag':lock['tag'],'coreCommit':lock['commit'],'platforms':consistency,
+    report={'pluginVersion':version,'pluginCommit':revision,'coreTag':lock['tag'],'coreCommit':lock['commit'],'coreActionsRun':lock['actionsRun'],'platforms':consistency,
             'builtInGitHubActions':os.environ.get('GITHUB_ACTIONS')=='true',
             'packages':[{ 'name':p.name,'sha256':digest(p),'size':p.stat().st_size } for p in archives]}
     (output/'build-validation.json').write_text(json.dumps(report,indent=2)+'\n')
