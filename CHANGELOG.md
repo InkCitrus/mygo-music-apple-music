@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Play six Apple Music live stations through TuneIn's AAC and HE-AAC broadcasts. The core verifies the first audio segment before MyGo changes its queue.
+- Choose High Quality (AAC 256 kbps), Lossless (up to 48 kHz), or the highest available lossless quality for songs.
+- Wait for audio output before starting the playback clock. Switching to a prepared next song reuses its buffered startup audio.
+- Ignore seek and song-favorite requests for live streams. The plugin supplies live playback metadata to MyGo. The live indicator and dedicated controls require support in the MyGo app.
+- Bundle Apple Music Native Core 0.2.0 for macOS ARM64, Windows x64, and Linux x64.
+
 ## 1.0.4
 
 Start catalog songs without waiting for a second metadata lookup. Native Core 0.1.4 can prepare the beginning of the next queued song while the current song is playing, then reuse it on a matching skip or queue advance. The host still decides what plays next.

@@ -2,9 +2,9 @@
 
 [English](README.md) | 简体中文
 
-1.0.0 将完整曲目播放统一交给 [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core)。macOS ARM64、Windows x64 和 Linux x64 使用同一套 ALAC 播放接口，无需后台浏览器或控制系统“音乐”应用。
+在 MyGo Music 里播放 Apple Music 曲库和六路直播电台，支持 macOS ARM64、Windows x64 和 Linux x64。[Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core) 负责原生账号授权、ALAC 与 AAC 解码及系统音频输出，播放无需浏览器或系统“音乐”应用。
 
-搜索、专辑、艺人、歌单、个人资料库、收藏、最近播放、个性化推荐、Apple TTML 逐字歌词及 LRCLIB 歌词回退继续由插件提供。播放核心负责原生订阅授权、ALAC 解码和系统音频输出。
+插件支持曲库浏览和搜索、个人资料库、歌单、收藏、个性化推荐，以及 Apple Music 逐字歌词和 LRCLIB 歌词补充。
 
 ## 安装与迁移
 
@@ -22,9 +22,11 @@ macOS 要求 Apple Silicon 与 macOS 14+；Windows 使用 x64 原生构建；Lin
 
 ## 音质与功能范围
 
-在插件设置里选择 **Apple Music 播放音质**。**最高可用无损**（默认）选择歌曲提供的最高 ALAC 规格；**无损（最高 48 kHz）**限制源采样率。切换音质从下一首歌起生效。MyGo 的全局播放音质设置用于向 MyGo 提供音频流的音源，本插件由独立核心播放，使用自己的音质选择。
+在插件设置里选择 **Apple Music 播放音质**。**最高可用无损**（默认）选择歌曲提供的最高 ALAC 规格；**无损（最高 48 kHz）**限制源采样率。**高音质（AAC 256 kbps）**使用 Apple 提供的原始立体声 AAC，流量更少。切换音质从下一首歌起生效。MyGo 的全局播放音质设置用于向 MyGo 提供音频流的音源，本插件由独立核心播放，使用自己的音质选择。
 
-支持播放、暂停、继续、拖动、音量、静音和曲目状态；MyGo Music 管理队列和下一首。资料库歌曲需要能映射到曲库 ID。推荐电台返回曲库歌曲时可以播放；不支持的电台请求会保留当前歌曲和队列。电台直播、自行上传且无曲库映射的歌曲、AirPlay 设备枚举、独占输出和跨曲无缝播放尚未实现。`stream()` 仅保留明确的试听接口，完整播放使用 `remote*` 钩子调用原生核心。
+支持播放、暂停、继续、拖动、音量、静音和曲目状态。MyGo Music 管理队列和下一首。资料库歌曲需要能映射到曲库 ID。推荐电台返回曲库歌曲时可以播放。自行上传且无曲库映射的歌曲、AirPlay 设备枚举、独占输出和跨曲无缝播放尚未实现。`stream()` 提供试听，完整播放使用 `remote*` 钩子调用原生核心。
+
+打开 **广播**，可以收听 Apple Music 1、Hits、Country、Club、Chill 和 Música Uno。[TuneIn](https://tunein.com/radio/Stream-Apple-Music-a178680/) 提供 AAC 或 HE-AAC 直播音频。首段音频验证成功后，MyGo 才会切换队列。电台暂时不可用时会继续当前播放。「直播」标记和专用播放控件需要 MyGo 主程序支持。电台节目回放暂不支持。
 
 此前核心实验已在三平台完成真实订阅 ALAC 24-bit/96 kHz 播放与拖动验证。1.0.2 的播放修复还在 macOS 实际安装的 MyGo Music 中验证了 24-bit/48 kHz 连续播放及切换到 24-bit/96 kHz，听者确认已流畅。当前 Windows/Linux 安装包通过了云端构建和自动检查，仍需真实账号试听回归。源音质并不等于声卡最终输出格式，尚不宣称 bit-perfect。
 

@@ -1,7 +1,7 @@
 {
   "id": "apple-music",
   "name": "Apple Music",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "minAppVersion": "0.1.8",
   "main": "dist/index.js",
   "playback": "remote",
@@ -63,9 +63,10 @@
       "type": "select",
       "options": [
         { "value": "", "label": "Highest available lossless (default)" },
-        { "value": "lossless", "label": "Lossless (up to 48 kHz)" }
+        { "value": "lossless", "label": "Lossless (up to 48 kHz)" },
+        { "value": "aac", "label": "High Quality (AAC 256 kbps)" }
       ],
-      "help": "Applies to Apple Music from the next song. Both options use ALAC; output follows system audio settings."
+      "help": "Applies to Apple Music from the next song. AAC uses less data; lossless uses ALAC."
     }
   ],
   "navigation": [

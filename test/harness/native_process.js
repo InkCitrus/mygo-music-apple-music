@@ -19,7 +19,7 @@ export function nativeProcess(host, record) {
             let result = true;
             if (host._nativeBehavior) result = await host._nativeBehavior(request);
             else switch (request.method) {
-              case "hello": result = { protocol: 1 }; break;
+              case "hello": result = { protocol: 1, formats: ["alac", "aac"] }; break;
               case "auth": {
                 const behavior = host._nativeAuthBehavior;
                 if (behavior instanceof Error) throw behavior;
@@ -28,7 +28,7 @@ export function nativeProcess(host, record) {
               }
               case "session": if(host._nativeSessionBehavior) {result=await host._nativeSessionBehavior();break;} result = { mediaUserToken: host._nativeToken ?? "mock_mut_subscriber_jwt_token_2026", developerToken: "SYNTHETIC_NATIVE_DEVELOPER" }; break;
               case "logout": host._nativeToken = ""; state = { status: "idle", volume: state.volume }; break;
-              case "play": state = { status: "playing", trackId: p.trackId, position: p.position, duration: 256613, volume: state.volume }; break;
+              case "play": state = { status: "playing", trackId: p.trackId, position: p.position + 1, duration: 256613, volume: state.volume }; result = { ...state }; break;
               case "pause": state.status = "paused"; break;
               case "resume": state.status = "playing"; break;
               case "seek": state.position = p.position; break;

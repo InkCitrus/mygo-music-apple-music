@@ -14,11 +14,15 @@ export interface CachedTrackMeta {
 }
 
 type Pending = { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
-type Connection = { proc: ProcessHandle; owner: typeof host; pending: Map<number, Pending>; ready: Promise<void>; play?: Promise<any>; healthAt: number };
+type Connection = { proc: ProcessHandle; owner: typeof host; pending: Map<number, Pending>; ready: Promise<void>; formats: string[]; liveRadio: boolean; play?: Promise<any>; healthAt: number };
+type StartOptions = { nextId?: string; deadline: number };
+type Quality = "hires" | "lossless" | "aac";
+type PlaybackMapping = { requested: string; catalog: string; quality?: Quality; live?: boolean };
 let connection: Connection | null = null;
 let nextId = 0;
 let playGeneration = 0;
-let mapping: { requested: string; catalog: string; quality: "hires" | "lossless" } | null = null;
+let radioSelection = 0;
+let mapping: PlaybackMapping | null = null;
 let loading = false;
 
 function error(code: "signIn" | "setup" | "unsupported" | "unavailable", message: string): Error {
@@ -36,14 +40,13 @@ function disconnect(c: Connection): void {
 
 export function resetRemoteSession(): void { if (connection) disconnect(connection); mapping = null; loading = false; playGeneration++; }
 
-function send(c: Connection, method: string, params: Record<string, any>): Promise<any> {
+function send(c: Connection, method: string, params: Record<string, any>, timeout = method === "auth" ? 15 * 60_000 : method === "setup" ? 10 * 60_000 : 65_000): Promise<any> {
   const id = ++nextId;
   return new Promise((resolve, reject) => {
-    const timeout = method === "auth" ? 15 * 60_000 : method === "setup" ? 10 * 60_000 : 65_000;
     const timer = setTimeout(() => {
       c.pending.delete(id);
       reject(error("unavailable", "Native playback command timed out"));
-      disconnect(c);
+      if (method !== "prepareRadio") disconnect(c);
     }, timeout);
     c.pending.set(id, { resolve, reject, timer });
     try { c.proc.write(JSON.stringify({ id, method, params }) + "\n"); }
@@ -62,7 +65,7 @@ function connect(): Connection {
   let proc: ProcessHandle;
   try { proc = host.spawn(binary, ["--data-dir", `${host.dataDir}/native-core`, "--language", host.language?.() || "en", "--app-name", "MyGo Music"]); }
   catch { throw error("setup", "Install the native playback bundle and allow this plugin to start programs"); }
-  const c: Connection = { proc, owner: host, pending: new Map(), ready: Promise.resolve(), healthAt: 0 };
+  const c: Connection = { proc, owner: host, pending: new Map(), ready: Promise.resolve(), formats: [], liveRadio: false, healthAt: 0 };
   connection = c;
   void (async () => {
     try {
@@ -80,8 +83,10 @@ function connect(): Connection {
       }
     } catch {} finally { disconnect(c); }
   })();
-  c.ready = send(c, "hello", {}).then(value => {
+  c.ready = send(c, "hello", {}, 5_000).then(value => {
     if (value?.protocol !== 1) { disconnect(c); throw error("setup", "Update the native playback core to a compatible version"); }
+    c.formats = Array.isArray(value.formats) ? value.formats : [];
+    c.liveRadio = value.liveRadio === true;
   });
   return c;
 }
@@ -95,28 +100,87 @@ export function beginNativePlay(): number { if (connection && connection.owner !
 function isCurrentNativePlay(generation: number): boolean { return generation === playGeneration; }
 export function finishNativeLoading(generation: number): void { if (isCurrentNativePlay(generation)) loading = false; }
 
-function selectedQuality(): "hires" | "lossless" {
-  return String(host.setting("audioQuality")).toLowerCase() === "lossless" ? "lossless" : "hires";
+function selectedQuality(): Quality {
+  const value = String(host.setting("audioQuality")).toLowerCase();
+  return value === "lossless" || value === "aac" ? value : "hires";
 }
 
-export async function nativePlay(requested: string, id: string, position: number, generation: number, nextId?: string): Promise<void> {
-  if (!isCurrentNativePlay(generation)) return;
-  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
-  const c = connect(); await c.ready;
-  if (c.play) await c.play.catch(() => {});
-  if (!isCurrentNativePlay(generation)) return;
-  if (connection !== c) throw error("unavailable", "Native playback connection closed");
-  const quality = selectedQuality();
-  const play = c.play = send(c, "play", { trackId: id, position, quality, nextTrackId: nextId === id ? undefined : nextId });
-  try {
-    await play;
-    if (connection === c) mapping = { requested, catalog: id, quality };
-  } finally {
-    if (c.play === play) c.play = undefined;
+function playbackError(state: { error?: string }): Error {
+  return error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
+}
+
+async function waitForOutput(c: Connection, state: any, id: string, start: number, generation: number, deadline: number): Promise<void> {
+  let delay = 40;
+  for (;;) {
+    if (connection !== c) throw error("unavailable", "Native playback connection closed");
+    if (!isCurrentNativePlay(generation)) return;
+    if (state?.trackId === id) {
+      if (state.status === "error") throw playbackError(state);
+      if (state.status === "paused" || ((state.status === "playing" || state.status === "ended") && state.position > start)) return;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      disconnect(c);
+      throw error("unavailable", "Apple Music took too long to start playing");
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, Math.min(delay, remaining)));
+    if (connection !== c || !isCurrentNativePlay(generation) || Date.now() >= deadline) continue;
+    state = await send(c, "state", {}, Math.max(1, deadline - Date.now()));
+    delay = Math.min(120, delay * 2);
   }
 }
 
+async function startPlayback(c: Connection, method: "play" | "playRadio", params: Record<string, unknown>, current: PlaybackMapping, position: number, generation: number, deadline: number): Promise<void> {
+  if (c.play) await c.play.catch(() => {});
+  if (connection !== c) throw error("unavailable", "Native playback connection closed");
+  if (!isCurrentNativePlay(generation)) return;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw error("unavailable", "Apple Music took too long to start playing");
+  const play = c.play = send(c, method, params, remaining);
+  let state;
+  try {
+    state = await play;
+    if (connection === c) mapping = current;
+  } finally {
+    if (c.play === play) c.play = undefined;
+  }
+  await waitForOutput(c, state, current.catalog, position, generation, deadline);
+}
+
+export async function nativePlay(requested: string, id: string, position: number, generation: number, { nextId, deadline }: StartOptions): Promise<void> {
+  if (!isCurrentNativePlay(generation)) return;
+  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback requires a catalog song or supported live station");
+  const c = connect(); await c.ready;
+  const quality = selectedQuality();
+  if (quality === "aac" && !c.formats.includes("aac")) throw error("setup", "Update the native playback core to a compatible version");
+  await startPlayback(c, "play", { trackId: id, position, quality, nextTrackId: nextId === id ? undefined : nextId }, { requested, catalog: id, quality }, position, generation, deadline);
+}
+
+export async function prepareNativeRadio(id: string): Promise<void> {
+  const c = connect(); await c.ready;
+  if (!c.liveRadio) throw error("unsupported", "Update the native playback core to play live radio");
+  try {
+    await send(c, "prepareRadio", { stationId: id }, 18_000);
+  } catch {
+    throw error("unavailable", "This live station is temporarily unavailable");
+  }
+}
+
+export async function nativePlayRadio(id: string, deadline: number): Promise<void> {
+  const previous = playGeneration;
+  const selection = ++radioSelection;
+  const c = connect();
+  await prepareNativeRadio(id);
+  if (connection !== c || selection !== radioSelection || !isCurrentNativePlay(previous)) return;
+  const generation = beginNativePlay();
+  try {
+    await startPlayback(c, "playRadio", { stationId: id }, { requested: id, catalog: id, live: true }, 0, generation, deadline);
+  } finally { finishNativeLoading(generation); }
+}
+
 export async function nativeSeek(position: number): Promise<void> {
+  // Older hosts show song controls for live stations and can still call this.
+  if (mapping?.live && connection?.owner === host) return;
   await nativeCommand("seek", { position, quality: mapping?.quality ?? selectedQuality() });
 }
 
@@ -139,10 +203,11 @@ export async function nativeState(): Promise<RemoteState | null> {
     } catch { /* Optional, local health checks must not interrupt playback. */ }
   }
   if (!state || ["idle", "ended"].includes(state.status)) return null;
-  if (state.status === "error") throw error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
+  if (state.status === "error") throw playbackError(state);
   return {
     playing: state.status !== "paused",
     trackId: mapping && state.trackId === mapping.catalog ? mapping.requested : state.trackId,
+    ...(state.live === true ? { live: true } : {}),
     position: Number(state.position) || 0,
     duration: Number(state.duration) || 0,
     volume: Number.isFinite(state.volume) ? state.volume : 100,

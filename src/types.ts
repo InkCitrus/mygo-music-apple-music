@@ -96,6 +96,7 @@ export interface Track {
   artists: Artist[];
   album: Album;
   duration: number; // in milliseconds
+  live?: boolean;
   url?: string;
   unavailable?: boolean;
   showId?: string;
@@ -249,6 +250,7 @@ export interface Device {
 export interface RemoteState {
   playing: boolean;
   trackId?: string;
+  live?: boolean;
   position: number; // milliseconds
   duration: number; // milliseconds
   volume: number;   // 0..100

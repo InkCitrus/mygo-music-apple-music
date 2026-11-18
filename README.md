@@ -2,9 +2,9 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Version 1.0.0 replaces Music.app automation and browser playback with [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core), an independent headless ALAC player for macOS ARM64, Windows x64 and Linux x64.
+Play Apple Music songs and six live stations in MyGo Music on macOS ARM64, Windows x64, and Linux x64. [Apple Music Native Core](https://github.com/InkCitrus/apple-music-native-core) handles account authorization, ALAC and AAC decoding, and system audio output without a browser or Music.app.
 
-The plugin retains catalog search, albums, artists, playlists, subscriber library, favorites, recommendations, recently played, Apple TTML word lyrics and LRCLIB fallback. The native core owns subscriber authorization, lossless decoding and system audio output. No browser or Music.app process is used for playback.
+Browse and search the catalog, manage playlists and your subscriber library, and follow word-synced Apple Music lyrics with LRCLIB fallback.
 
 ## Install and migrate
 
@@ -18,9 +18,11 @@ Supported: Apple Silicon/macOS 14+, Windows x64, and Linux x64/glibc 2.38+ with 
 
 ## Playback and quality
 
-Use **Apple Music Playback Quality** in the plugin settings. **Highest available lossless** (default) selects the highest available ALAC variant; **Lossless (up to 48 kHz)** limits the source sample rate. Changes apply when you start another song. MyGo's global Playback Quality setting applies to sources that supply a stream to MyGo; it doesn't control playback by this plugin's native core.
+Use **Apple Music Playback Quality** in the plugin settings. **Highest available lossless** (default) selects the highest available ALAC variant; **Lossless (up to 48 kHz)** limits the source sample rate. **High Quality (AAC 256 kbps)** selects Apple's original stereo AAC rendition and uses less data. Changes apply when you start another song. MyGo's global Playback Quality setting applies to sources that supply a stream to MyGo; it doesn't control playback by this plugin's native core.
 
-Play, pause, resume, seek, volume, mute and state polling use the same native interface on all supported desktops. MyGo Music owns queue order. Library songs require a catalog mapping. Recommended stations can play when their feed returns catalog songs. Unsupported station requests leave the current song and queue unchanged. Live radio, uploaded-only tracks, AirPlay device enumeration, exclusive output and cross-track gapless output are not implemented. The separate `stream()` hook remains a preview-only API; full playback uses `remote*` hooks.
+Play, pause, resume, seek, volume, mute and state polling use the same native interface on all supported desktops. MyGo Music owns queue order. Library songs require a catalog mapping. Recommended stations can play when their feed returns catalog songs. Uploaded-only tracks, AirPlay device enumeration, exclusive output and cross-track gapless output are not implemented. The separate `stream()` hook provides song previews. Full playback uses the `remote*` hooks.
+
+Open **Radio** for Apple Music 1, Hits, Country, Club, Chill, and Música Uno. [TuneIn's broadcasts](https://tunein.com/radio/Stream-Apple-Music-a178680/) provide AAC or HE-AAC audio. The core verifies the first segment before MyGo switches playback, so an unavailable station leaves the current song and queue intact. The live indicator and dedicated live controls require support in the MyGo app. Radio show replays are unavailable.
 
 The underlying prototype passed real subscriber ALAC 24-bit/96 kHz playback and seeking on the three target platforms. The 1.0.2 playback fixes were also exercised in the installed MyGo Music application on macOS, including continuous 24-bit/48 kHz playback and transition to 24-bit/96 kHz; the listener confirmed smooth playback. The current Windows/Linux packages pass cloud builds and automated checks but still need real-account listening regression. Source format does not prove physical DAC format or bit-perfect output.
 

@@ -70,7 +70,8 @@
   "Apple Music Playback Quality": "Apple Music Playback Quality",
   "Highest available lossless (default)": "Highest available lossless (default)",
   "Lossless (up to 48 kHz)": "Lossless (up to 48 kHz)",
-  "Applies to Apple Music from the next song. Both options use ALAC; output follows system audio settings.": "Applies to Apple Music from the next song. Both options use ALAC; output follows system audio settings.",
+  "High Quality (AAC 256 kbps)": "High Quality (AAC 256 kbps)",
+  "Applies to Apple Music from the next song. AAC uses less data; lossless uses ALAC.": "Applies to Apple Music from the next song. AAC uses less data; lossless uses ALAC.",
   "System Audio Output": "System Audio Output",
   "Select the output device in system audio settings": "Select the output device in system audio settings",
   "Complete Apple Music sign-in in the native account dialogs": "Complete Apple Music sign-in in the native account dialogs",
@@ -82,10 +83,14 @@
   "Native operation failed": "Native operation failed",
   "Native playback connection closed": "Native playback connection closed",
   "Native playback command timed out": "Native playback command timed out",
+  "Apple Music took too long to start playing": "Apple Music took too long to start playing",
   "Update the native playback core to a compatible version": "Update the native playback core to a compatible version",
   "This track, quality or platform is not supported": "This track, quality or platform is not supported",
-  "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable": "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable",
-  "Choose an available lossless quality": "Choose an available lossless quality",
+  "Native playback requires a catalog song or supported live station": "Native playback requires a catalog song or supported live station",
+  "Choose an available Apple Music quality": "Choose an available Apple Music quality",
   "This station has no playable catalog songs": "This station has no playable catalog songs",
-  "Live radio and radio shows are not supported yet": "Live radio and radio shows are not supported yet"
+  "Live broadcast": "Live broadcast",
+  "Radio show playback is unavailable": "Radio show playback is unavailable",
+  "Update the native playback core to play live radio": "Update the native playback core to play live radio",
+  "This live station is temporarily unavailable": "This live station is temporarily unavailable"
 }

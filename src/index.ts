@@ -20,7 +20,7 @@ import {
   Stream,
   Track,
 } from "./types.js";
-import { CachedTrackMeta, nativeCommand, nativePlay, nativeSeek, nativeState, nativeDevices, beginNativePlay, finishNativeLoading, resetRemoteSession } from "./native_remote.js";
+import { CachedTrackMeta, nativeCommand, nativePlay, nativePlayRadio, prepareNativeRadio, nativeSeek, nativeState, nativeDevices, beginNativePlay, finishNativeLoading, resetRemoteSession } from "./native_remote.js";
 import { parseAppleTTML } from "./lyrics.js";
 export * from "./types.js";
 export { parseAppleTTML, parseTtmlTimestamp } from "./lyrics.js";
@@ -2316,7 +2316,7 @@ export async function savedAlbums(options?: { offset?: number; sort?: string }):
 
 export async function like(options: { id: string; on: boolean }): Promise<void> {
   const id = String(options?.id || "").trim();
-  if (!id) return;
+  if (!id || isLiveStation(id)) return;
   const on = Boolean(options?.on);
   const isLibId = id.startsWith("i.");
   const resType = isLibId ? "library-songs" : "songs";
@@ -2383,9 +2383,12 @@ export async function like(options: { id: string; on: boolean }): Promise<void> 
 }
 
 export async function isLiked(options: { ids: string[] }): Promise<Record<string, boolean>> {
-  const ids = Array.isArray(options?.ids) ? options.ids.filter(Boolean) : [];
   const out: Record<string, boolean> = {};
-  for (const id of ids) out[id] = false;
+  const ids = (Array.isArray(options?.ids) ? options.ids : []).filter(id => {
+    if (!id) return false;
+    out[id] = false;
+    return !isLiveStation(id);
+  });
   if (ids.length === 0) return out;
 
   const token = await getStoredMediaUserToken();
@@ -2520,7 +2523,7 @@ export async function stations(): Promise<Station[]> {
     seenIds.add(st.id);
     result.push({
       ...st,
-      description: [tr("Live radio and radio shows are not supported yet"), st.description].filter(Boolean).join(" · "),
+      description: [APPLE_MUSIC_LIVE_STATIONS.some(live => live.id === st.id) ? tr("Live broadcast") : tr("Radio show playback is unavailable"), st.description].filter(Boolean).join(" · "),
     });
   };
 
@@ -2549,15 +2552,10 @@ export async function stations(): Promise<Station[]> {
             : staticFallback?.imageUrl,
         });
       }
-    } else {
-      for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
-        add(liveSt);
-      }
     }
-  } catch {
-    for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
-      add(liveSt);
-    }
+  } catch {}
+  for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
+    add(liveSt);
   }
 
   // 2. Fetch Latest Radio Shows & Editorial Broadcast Episodes from Apple Music Web Radio
@@ -2601,8 +2599,15 @@ export async function stations(): Promise<Station[]> {
 export async function stationNext(options: { id: string }): Promise<Track[]> {
   const id = String(options?.id || "").trim();
   if (!id) throw fail("unavailable", "Station id required");
-  if (APPLE_MUSIC_LIVE_STATIONS.some(st => st.id === id)) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
+  const live = APPLE_MUSIC_LIVE_STATIONS.find(st => st.id === id);
+  if (live) {
+    // The host replaces its queue when it receives an item. Keep the current
+    // song while resolving, downloading and decoding the radio's first segment.
+    await prepareNativeRadio(id);
+    return [{
+      id: live.id, name: live.name, duration: 0, live: true, artists: [],
+      album: { id: live.id, name: live.name, imageUrl: live.imageUrl },
+    }];
   }
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   const json = await requestApi(
@@ -2695,8 +2700,12 @@ export async function lyrics(options: { id: string }): Promise<Lyrics> {
 // Full-track playback through the independent native core (all supported desktops).
 // ============================================================================
 
+function isLiveStation(id: string): boolean {
+  return APPLE_MUSIC_LIVE_STATIONS.some(station => station.id === id);
+}
+
 function isRadioId(id: string): boolean {
-  return id.startsWith("ra.") || APPLE_MUSIC_LIVE_STATIONS.some((station) => station.id === id);
+  return id.startsWith("ra.") || isLiveStation(id);
 }
 
 function knownCatalogId(id: string): string | undefined {
@@ -2712,14 +2721,21 @@ export async function remotePlay(options: { ids: string[]; start?: number; posit
   const position = Math.max(0, Number(options?.position) || 0);
   const targetId = String(ids[start] || "").trim();
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
-  if (isRadioId(targetId)) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
+  if (isLiveStation(targetId)) {
+    await nativePlayRadio(targetId, Date.now() + 25_000);
+    return;
   }
+  if (isRadioId(targetId)) {
+    throw fail("unsupported", tr("Radio show playback is unavailable"));
+  }
+  if (!Number.isFinite(position)) throw fail("unavailable", "Invalid position");
   const generation = beginNativePlay();
+  // Leave time to return an error before MyGo's 30-second hook deadline.
+  const deadline = Date.now() + 25_000;
   try {
     const catalogId = knownCatalogId(targetId) || (await resolveTrackMeta(targetId)).catalogId || targetId;
     const nextId = knownCatalogId(String(ids[start + 1] || "").trim());
-    await nativePlay(targetId, catalogId, Math.round(position), generation, nextId);
+    await nativePlay(targetId, catalogId, Math.round(position), generation, { nextId, deadline });
   } finally { finishNativeLoading(generation); }
 }
 export async function remotePause(): Promise<void> { await nativeCommand("pause"); }
@@ -3159,7 +3175,7 @@ export async function account(): Promise<Account | null> {
 
 export async function setSetting(options: { key: string; value: string }): Promise<void> {
   const { key, value } = options || {};
-  if (key === "audioQuality" && !["", "hires", "lossless"].includes(value)) throw fail("unsupported", tr("Choose an available lossless quality"));
+  if (key === "audioQuality" && !["", "hires", "lossless", "aac"].includes(value)) throw fail("unsupported", tr("Choose an available Apple Music quality"));
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);
   }

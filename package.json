@@ -1,7 +1,7 @@
 {
   "name": "mygo-music-apple-music",
-  "version": "1.0.4",
-  "description": "Apple Music plugin for MyGo Music",
+  "version": "1.1.0",
+  "description": "Apple Music for MyGo Music with native lossless and AAC playback, live radio, your library, and word-synced lyrics",
   "license": "MIT",
   "author": "InkCitrus",
   "homepage": "https://github.com/InkCitrus/mygo-music-apple-music",

@@ -80,6 +80,73 @@ for (const paused of [false, true]) {
   });
 }
 
+test("live radio prepares before returning a queue entry and waits for native output", async () => {
+  const host = globalThis.host = createHost();
+  const stationId = "ra.978194965";
+  const playing = { status: "playing", trackId: stationId, live: true, duration: 0, position: 0, volume: 100 };
+  let outputReady = false;
+  host._setNativeBehavior(({ method, params }) => {
+    switch (method) {
+      case "hello": return { protocol: 1, liveRadio: true, formats: ["alac", "aac"] };
+      case "prepareRadio": assert.equal(params.stationId, stationId); return true;
+      case "playRadio": assert.deepEqual(params, { stationId }); return playing;
+      case "state": return { ...playing, position: outputReady ? 42 : 0 };
+      default: assert.fail(`unexpected method ${method}`);
+    }
+  });
+  const [entry] = await plugin.stationNext({ id: stationId });
+  assert.equal(entry.id, stationId);
+  assert.equal(entry.name, "Apple Music 1");
+  assert.equal(entry.duration, 0);
+  assert.equal(entry.live, true);
+  assert.deepEqual(commands(host).map(x => x.method), ["hello", "prepareRadio"]);
+  let settled = false;
+  const start = plugin.remotePlay({ ids: [entry.id] }).then(() => { settled = true; });
+  await new Promise(resolve => setTimeout(resolve, 75));
+  assert.equal(settled, false);
+  assert.equal(await plugin.remoteState(), null);
+  outputReady = true;
+  await start;
+  const state = await plugin.remoteState();
+  assert.equal(state.trackId, stationId);
+  assert.equal(state.position, 42);
+  assert.equal(state.duration, 0);
+  assert.equal(state.live, true);
+  await plugin.remoteSeek({ position: 0 });
+  assert.equal(commands(host).some(x => x.method === "seek"), false);
+  assert.equal(host._getOpenedURLs().length, 0);
+});
+
+test("live stations never call song favorites endpoints", async () => {
+  globalThis.host = createHost();
+  await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
+  globalThis.fetch = async () => assert.fail("live stations should not query or change song favorites");
+  const id = "ra.978194965";
+  await plugin.like({ id, on: true });
+  assert.deepEqual(await plugin.isLiked({ ids: [id] }), { [id]: false });
+});
+
+test("failed live segment preflight preserves playing song and sends no play command", async () => {
+  const host = globalThis.host = createHost();
+  const state = { status: "playing", trackId: "901210", position: 42001, duration: 256613, volume: 23 };
+  host._setNativeBehavior(({ method }) => {
+    switch (method) {
+      case "hello": return { protocol: 1, liveRadio: true };
+      case "play":
+      case "state": return state;
+      case "prepareRadio": throw plugin.fail("unavailable", "offline station");
+      default: assert.fail(`unexpected method ${method}`);
+    }
+  });
+  await plugin.remotePlay({ ids: [state.trackId], position: 42000 });
+  const before = await plugin.remoteState();
+  await assert.rejects(plugin.stationNext({ id: "ra.978194965" }), e => e.code === "unavailable");
+  await assert.rejects(plugin.remotePlay({ ids: ["ra.978194965"] }), e => e.code === "unavailable");
+  assert.deepEqual(await plugin.remoteState(), before);
+  assert.deepEqual(commands(host).filter(x => x.method.startsWith("play")).map(x => x.method), ["play"]);
+  assert.equal(host._getOpenedURLs().length, 0);
+});
+
 test("empty and non-song station feeds cannot replace current playback", async () => {
   globalThis.host = createHost();
   await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
@@ -171,6 +238,44 @@ test("ignores stale metadata after a newer play request", async () => {
   assert.equal(plays.length, 1); assert.equal(plays[0].params.trackId, "901124");
 });
 
+test("keeps the host loading until the new track's output position advances", { timeout: 3000 }, async () => {
+  globalThis.host = createHost();
+  const trackId = "901039", start = 12500;
+  let outputReady = false, acknowledged = false;
+  let arrived;
+  const stillAtStart = new Promise(resolve => { arrived = resolve; });
+  host._setNativeBehavior(request => {
+    const status = { trackId, position: start, duration: 200000, volume: 100 };
+    if (request.method === "hello") return { protocol: 1 };
+    if (request.method === "play") return { ...status, status: "buffering" };
+    if (request.method === "state" && !outputReady) {
+      arrived();
+      return { ...status, status: "playing" };
+    }
+    return { ...status, status: "playing", position: start + 24 };
+  });
+  const pending = plugin.remotePlay({ ids: [trackId], position: start }).then(() => { acknowledged = true; });
+  try {
+    await Promise.race([stillAtStart, pending]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(acknowledged, false);
+    assert.equal(await plugin.remoteState(), null);
+  } finally { outputReady = true; }
+  await pending;
+  assert.equal((await plugin.remoteState()).position, start + 24);
+});
+
+test("a native startup failure stays an error instead of starting the host clock", { timeout: 3000 }, async () => {
+  globalThis.host = createHost();
+  const trackId = "901043";
+  host._setNativeBehavior(request => {
+    if (request.method === "hello") return { protocol: 1 };
+    if (request.method === "play") return { status: "buffering", trackId, position: 0 };
+    return { status: "error", error: "signIn", trackId, position: 0 };
+  });
+  await assert.rejects(plugin.remotePlay({ ids: [trackId] }), e => e.code === "signIn");
+});
+
 test("rapid skips preserve command order and drop an intermediate selection", async () => {
   globalThis.host = createHost();
   let release, started;
@@ -179,7 +284,7 @@ test("rapid skips preserve command order and drop an intermediate selection", as
   host._setNativeBehavior(async request => {
     if (request.method === "hello") return { protocol: 1 };
     if (request.params.trackId === "901040") { started(); await wait; }
-    return true;
+    return { status: "playing", trackId: request.params.trackId, position: request.params.position + 20 };
   });
   const original = plugin.remotePlay({ ids: ["901040"] });
   await first;
@@ -192,6 +297,23 @@ test("rapid skips preserve command order and drop an intermediate selection", as
   } finally { release(); }
   await Promise.all([original, skipped, latest]);
   assert.deepEqual(played(), ["901040", "901042"]);
+});
+
+test("replacing a track does not wait for its buffered output to start", { timeout: 3000 }, async () => {
+  globalThis.host = createHost();
+  let arrived;
+  const waiting = new Promise(resolve => { arrived = resolve; });
+  host._setNativeBehavior(request => {
+    if (request.method === "hello") return { protocol: 1 };
+    if (request.method === "state") arrived();
+    const trackId = request.params?.trackId ?? "901044";
+    return trackId === "901044" ? { status: "buffering", trackId, position: 0 }
+      : { status: "playing", trackId, position: 20 };
+  });
+  const old = plugin.remotePlay({ ids: ["901044"] });
+  await waiting;
+  await Promise.all([old, plugin.remotePlay({ ids: ["901045"] })]);
+  assert.deepEqual(commands(host).filter(c => ["play", "stop"].includes(c.method)).map(c => c.params.trackId), ["901044", "901045"]);
 });
 
 test("core failure and protocol mismatch do not expose diagnostic text", async () => {
@@ -223,6 +345,26 @@ test("native quality, system output and manifest replace old control permissions
   for (const phrase of [quality.label, quality.help, ...quality.options.map(o => o.label)]) assert.ok(zh[phrase]);
   assert.deepEqual(manifest.permissions.process, ["bin/apple-music-core-*"]);
   assert.ok(!manifest.settings.some(x => x.key === "playbackBackend" || x.key === "crossfadeTip"));
+});
+
+test("AAC applies on a new song and stays selected when seeking it", async () => {
+  globalThis.host = createHost();
+  await plugin.remotePlay({ ids: ["901100"] });
+  await plugin.setSetting({ key: "audioQuality", value: "aac" });
+  await plugin.remoteSeek({ position: 4000 });
+  await plugin.remotePlay({ ids: ["901101", "901102"] });
+  await plugin.setSetting({ key: "audioQuality", value: "lossless" });
+  await plugin.remoteSeek({ position: 3000 });
+  await plugin.remotePlay({ ids: ["901102"] });
+  assert.deepEqual(commands(host).filter(c => ["play", "seek"].includes(c.method)).map(c => c.params.quality), ["hires", "hires", "aac", "aac", "lossless"]);
+});
+
+test("selecting AAC with an ALAC-only core does not issue a play command", async () => {
+  globalThis.host = createHost();
+  host._setNativeBehavior(() => ({ protocol: 1, formats: ["alac"] }));
+  await plugin.setSetting({ key: "audioQuality", value: "aac" });
+  await assert.rejects(plugin.remotePlay({ ids: ["901100"] }), e => e.code === "setup");
+  assert.deepEqual(commands(host).map(c => c.method), ["hello"]);
 });
 
 test("logout clears the native session and app catalog token", async () => {
