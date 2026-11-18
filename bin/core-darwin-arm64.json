@@ -1,6 +1,6 @@
 {
   "protocol": 1,
-  "coreSHA256": "0b58713cad0f9aff95a3e36f1577ae6478267ea2f2b4592e91e0136a64a36194",
+  "coreSHA256": "e07e16ba2e2802e0f83bb0a4827c335c9cb8095b6bb559f9b06374168a09780f",
   "nativeFiles": {
     "AccountWindow.app/Contents/Info.plist": "f3c08eef9c808180005b689dec02309cc470231f8453a317a6b8c6db5a08a2d6",
     "AccountWindow.app/Contents/MacOS/account-ui": "839ef30bc00fb9536bd1b19048807aaf949f3e3522f609c8b77dd6fe4faee401",
@@ -9,5 +9,5 @@
     "AccountWindow.app/Contents/_CodeSignature/CodeResources": "bd02c262daca8185c3ebdcfbc6ea18db7bd786513c379dc5b7f9565499f237f7",
     "native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
   },
-  "sourceCommit": "0db6dc0c39c4b9f22037f2e4e4c9059b8d818f5b"
+  "sourceCommit": "f732912783bce13e49a4521af73cbe18356972ff"
 }

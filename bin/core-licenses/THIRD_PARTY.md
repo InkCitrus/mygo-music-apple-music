@@ -7,6 +7,7 @@ The root MIT license covers new orchestration code, not every file in this tree.
 | Apple ALAC decoder, decode-only subset | `codec/` | `codec/LICENSE.Apple-ALAC`, Apache 2.0 |
 | mp4ff | `github.com/Eyevinn/mp4ff` v0.50.0, Go checksum in `go.sum` | `third_party/LICENSE.mp4ff`, MIT |
 | miniaudio | `audio/miniaudio.h` | `audio/LICENSE.miniaudio`, original dual-license text |
+| libxaac (decoder only) | `third_party/aac-lock.json` pins the upstream source | Apache-2.0; upstream LICENSE and NOTICE in `licenses/libxaac/` |
 | Adam native DRM client and wrapper sources, locally patched | `silentone12725/apple-music-linux` at `dea30e5e56a05d742feb4f21c4f982b2bbd59c41` | `third_party/LICENSE.Adam`, MIT; preserve nested source headers |
 | libhybris-win and Android linker sources, locally patched | `silentone12725/libhybris-win` at `606bae7cdb49eaf8be79828de6cda0ce9d414295` | all `third_party/libhybris-win/LICENSE.*` and per-file headers; includes LGPL 2.1, BSD and Apache components |
 | cJSON | `third_party/cJSON.{c,h}`, `native/macos/arm-reference/cJSON.{c,h}` | MIT notice in each source header |

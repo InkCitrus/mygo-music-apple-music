@@ -9,6 +9,7 @@ function fail(code, message) {
 var connection = null;
 var nextId = 0;
 var playGeneration = 0;
+var radioSelection = 0;
 var mapping = null;
 var loading = false;
 function error(code, message) {
@@ -44,14 +45,13 @@ function resetRemoteSession() {
   loading = false;
   playGeneration++;
 }
-function send(c, method, params) {
+function send(c, method, params, timeout = method === "auth" ? 15 * 6e4 : method === "setup" ? 10 * 6e4 : 65e3) {
   const id = ++nextId;
   return new Promise((resolve, reject) => {
-    const timeout = method === "auth" ? 15 * 6e4 : method === "setup" ? 10 * 6e4 : 65e3;
     const timer = setTimeout(() => {
       c.pending.delete(id);
       reject(error("unavailable", "Native playback command timed out"));
-      disconnect(c);
+      if (method !== "prepareRadio") disconnect(c);
     }, timeout);
     c.pending.set(id, { resolve, reject, timer });
     try {
@@ -78,7 +78,7 @@ function connect() {
   } catch {
     throw error("setup", "Install the native playback bundle and allow this plugin to start programs");
   }
-  const c = { proc, owner: host, pending: /* @__PURE__ */ new Map(), ready: Promise.resolve(), healthAt: 0 };
+  const c = { proc, owner: host, pending: /* @__PURE__ */ new Map(), ready: Promise.resolve(), formats: [], liveRadio: false, healthAt: 0 };
   connection = c;
   void (async () => {
     try {
@@ -104,11 +104,13 @@ function connect() {
       disconnect(c);
     }
   })();
-  c.ready = send(c, "hello", {}).then((value) => {
+  c.ready = send(c, "hello", {}, 5e3).then((value) => {
     if (value?.protocol !== 1) {
       disconnect(c);
       throw error("setup", "Update the native playback core to a compatible version");
     }
+    c.formats = Array.isArray(value.formats) ? value.formats : [];
+    c.liveRadio = value.liveRadio === true;
   });
   return c;
 }
@@ -129,27 +131,83 @@ function finishNativeLoading(generation) {
   if (isCurrentNativePlay(generation)) loading = false;
 }
 function selectedQuality() {
-  return String(host.setting("audioQuality")).toLowerCase() === "lossless" ? "lossless" : "hires";
+  const value = String(host.setting("audioQuality")).toLowerCase();
+  return value === "lossless" || value === "aac" ? value : "hires";
 }
-async function nativePlay(requested, id, position, generation, nextId2) {
-  if (!isCurrentNativePlay(generation)) return;
-  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
-  const c = connect();
-  await c.ready;
+function playbackError(state) {
+  return error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
+}
+async function waitForOutput(c, state, id, start, generation, deadline) {
+  let delay = 40;
+  for (; ; ) {
+    if (connection !== c) throw error("unavailable", "Native playback connection closed");
+    if (!isCurrentNativePlay(generation)) return;
+    if (state?.trackId === id) {
+      if (state.status === "error") throw playbackError(state);
+      if (state.status === "paused" || (state.status === "playing" || state.status === "ended") && state.position > start) return;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      disconnect(c);
+      throw error("unavailable", "Apple Music took too long to start playing");
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
+    if (connection !== c || !isCurrentNativePlay(generation) || Date.now() >= deadline) continue;
+    state = await send(c, "state", {}, Math.max(1, deadline - Date.now()));
+    delay = Math.min(120, delay * 2);
+  }
+}
+async function startPlayback(c, method, params, current, position, generation, deadline) {
   if (c.play) await c.play.catch(() => {
   });
-  if (!isCurrentNativePlay(generation)) return;
   if (connection !== c) throw error("unavailable", "Native playback connection closed");
-  const quality = selectedQuality();
-  const play = c.play = send(c, "play", { trackId: id, position, quality, nextTrackId: nextId2 === id ? void 0 : nextId2 });
+  if (!isCurrentNativePlay(generation)) return;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw error("unavailable", "Apple Music took too long to start playing");
+  const play = c.play = send(c, method, params, remaining);
+  let state;
   try {
-    await play;
-    if (connection === c) mapping = { requested, catalog: id, quality };
+    state = await play;
+    if (connection === c) mapping = current;
   } finally {
     if (c.play === play) c.play = void 0;
   }
+  await waitForOutput(c, state, current.catalog, position, generation, deadline);
+}
+async function nativePlay(requested, id, position, generation, { nextId: nextId2, deadline }) {
+  if (!isCurrentNativePlay(generation)) return;
+  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback requires a catalog song or supported live station");
+  const c = connect();
+  await c.ready;
+  const quality = selectedQuality();
+  if (quality === "aac" && !c.formats.includes("aac")) throw error("setup", "Update the native playback core to a compatible version");
+  await startPlayback(c, "play", { trackId: id, position, quality, nextTrackId: nextId2 === id ? void 0 : nextId2 }, { requested, catalog: id, quality }, position, generation, deadline);
+}
+async function prepareNativeRadio(id) {
+  const c = connect();
+  await c.ready;
+  if (!c.liveRadio) throw error("unsupported", "Update the native playback core to play live radio");
+  try {
+    await send(c, "prepareRadio", { stationId: id }, 18e3);
+  } catch {
+    throw error("unavailable", "This live station is temporarily unavailable");
+  }
+}
+async function nativePlayRadio(id, deadline) {
+  const previous = playGeneration;
+  const selection = ++radioSelection;
+  const c = connect();
+  await prepareNativeRadio(id);
+  if (connection !== c || selection !== radioSelection || !isCurrentNativePlay(previous)) return;
+  const generation = beginNativePlay();
+  try {
+    await startPlayback(c, "playRadio", { stationId: id }, { requested: id, catalog: id, live: true }, 0, generation, deadline);
+  } finally {
+    finishNativeLoading(generation);
+  }
 }
 async function nativeSeek(position) {
+  if (mapping?.live && connection?.owner === host) return;
   await nativeCommand("seek", { position, quality: mapping?.quality ?? selectedQuality() });
 }
 async function nativeState() {
@@ -178,10 +236,11 @@ async function nativeState() {
     }
   }
   if (!state || ["idle", "ended"].includes(state.status)) return null;
-  if (state.status === "error") throw error(state.error === "signIn" ? "signIn" : "unavailable", "Native operation failed");
+  if (state.status === "error") throw playbackError(state);
   return {
     playing: state.status !== "paused",
     trackId: mapping && state.trackId === mapping.catalog ? mapping.requested : state.trackId,
+    ...state.live === true ? { live: true } : {},
     position: Number(state.position) || 0,
     duration: Number(state.duration) || 0,
     volume: Number.isFinite(state.volume) ? state.volume : 100,
@@ -2187,7 +2246,7 @@ async function savedAlbums(options) {
 }
 async function like(options) {
   const id = String(options?.id || "").trim();
-  if (!id) return;
+  if (!id || isLiveStation(id)) return;
   const on = Boolean(options?.on);
   const isLibId = id.startsWith("i.");
   const resType = isLibId ? "library-songs" : "songs";
@@ -2251,9 +2310,12 @@ async function like(options) {
   }
 }
 async function isLiked(options) {
-  const ids = Array.isArray(options?.ids) ? options.ids.filter(Boolean) : [];
   const out = {};
-  for (const id of ids) out[id] = false;
+  const ids = (Array.isArray(options?.ids) ? options.ids : []).filter((id) => {
+    if (!id) return false;
+    out[id] = false;
+    return !isLiveStation(id);
+  });
   if (ids.length === 0) return out;
   const token = await getStoredMediaUserToken();
   if (!token) return out;
@@ -2368,7 +2430,7 @@ async function stations() {
     seenIds.add(st.id);
     result.push({
       ...st,
-      description: [tr("Live radio and radio shows are not supported yet"), st.description].filter(Boolean).join(" \xB7 ")
+      description: [APPLE_MUSIC_LIVE_STATIONS.some((live) => live.id === st.id) ? tr("Live broadcast") : tr("Radio show playback is unavailable"), st.description].filter(Boolean).join(" \xB7 ")
     });
   };
   const liveStationIds = APPLE_MUSIC_LIVE_STATIONS.map((s) => s.id).join(",");
@@ -2389,15 +2451,11 @@ async function stations() {
           imageUrl: attr.artwork?.url ? formatArtworkUrl(attr.artwork.url, 600) : staticFallback?.imageUrl
         });
       }
-    } else {
-      for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
-        add(liveSt);
-      }
     }
   } catch {
-    for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
-      add(liveSt);
-    }
+  }
+  for (const liveSt of APPLE_MUSIC_LIVE_STATIONS) {
+    add(liveSt);
   }
   try {
     const radioUrl = `https://music.apple.com/${sf}/radio?l=${encodeURIComponent(lang)}`;
@@ -2437,8 +2495,17 @@ async function stations() {
 async function stationNext(options) {
   const id = String(options?.id || "").trim();
   if (!id) throw fail("unavailable", "Station id required");
-  if (APPLE_MUSIC_LIVE_STATIONS.some((st) => st.id === id)) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
+  const live = APPLE_MUSIC_LIVE_STATIONS.find((st) => st.id === id);
+  if (live) {
+    await prepareNativeRadio(id);
+    return [{
+      id: live.id,
+      name: live.name,
+      duration: 0,
+      live: true,
+      artists: [],
+      album: { id: live.id, name: live.name, imageUrl: live.imageUrl }
+    }];
   }
   const lang = typeof host !== "undefined" && host.language ? host.language() : "en";
   const json = await requestApi(
@@ -2509,8 +2576,11 @@ async function lyrics(options) {
   }
   return {};
 }
+function isLiveStation(id) {
+  return APPLE_MUSIC_LIVE_STATIONS.some((station) => station.id === id);
+}
 function isRadioId(id) {
-  return id.startsWith("ra.") || APPLE_MUSIC_LIVE_STATIONS.some((station) => station.id === id);
+  return id.startsWith("ra.") || isLiveStation(id);
 }
 function knownCatalogId(id) {
   if (isRadioId(id)) return;
@@ -2524,14 +2594,20 @@ async function remotePlay(options) {
   const position = Math.max(0, Number(options?.position) || 0);
   const targetId = String(ids[start] || "").trim();
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
-  if (isRadioId(targetId)) {
-    throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
+  if (isLiveStation(targetId)) {
+    await nativePlayRadio(targetId, Date.now() + 25e3);
+    return;
   }
+  if (isRadioId(targetId)) {
+    throw fail("unsupported", tr("Radio show playback is unavailable"));
+  }
+  if (!Number.isFinite(position)) throw fail("unavailable", "Invalid position");
   const generation = beginNativePlay();
+  const deadline = Date.now() + 25e3;
   try {
     const catalogId = knownCatalogId(targetId) || (await resolveTrackMeta(targetId)).catalogId || targetId;
     const nextId2 = knownCatalogId(String(ids[start + 1] || "").trim());
-    await nativePlay(targetId, catalogId, Math.round(position), generation, nextId2);
+    await nativePlay(targetId, catalogId, Math.round(position), generation, { nextId: nextId2, deadline });
   } finally {
     finishNativeLoading(generation);
   }
@@ -2888,7 +2964,7 @@ async function account() {
 }
 async function setSetting(options) {
   const { key, value } = options || {};
-  if (key === "audioQuality" && !["", "hires", "lossless"].includes(value)) throw fail("unsupported", tr("Choose an available lossless quality"));
+  if (key === "audioQuality" && !["", "hires", "lossless", "aac"].includes(value)) throw fail("unsupported", tr("Choose an available Apple Music quality"));
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);
   }

@@ -1,26 +1,26 @@
 {
   "repository": "InkCitrus/apple-music-native-core",
-  "tag": "v0.1.4",
-  "commit": "0db6dc0c39c4b9f22037f2e4e4c9059b8d818f5b",
-  "actionsRun": 44238171169,
+  "tag": "v0.2.0",
+  "commit": "f732912783bce13e49a4521af73cbe18356972ff",
+  "actionsRun": 44324601156,
   "assets": [
     {
-      "name": "amcore-0.1.4-darwin-arm64.zip",
+      "name": "amcore-0.2.0-darwin-arm64.zip",
       "platform": "darwin-arm64",
-      "size": 14483109,
-      "sha256": "d182f5070dc5e320204d76056e10271ddfe81ad3be8d6ebf9acbf67fad26b7d1"
+      "size": 21273296,
+      "sha256": "dbbc49ebacba8a39a1a1c4ed4ca10c38c3945bf12fb8415929cc0d6b4b414f62"
     },
     {
-      "name": "amcore-0.1.4-windows-amd64.zip",
+      "name": "amcore-0.2.0-windows-amd64.zip",
       "platform": "windows-amd64",
-      "size": 13814136,
-      "sha256": "f601901817cbd62e6824c94c4e2e9d0ad2b9e75d19cf2be977cc027a29e786ec"
+      "size": 20549697,
+      "sha256": "aeb540d2b98093cb967b8285249c16448f67a3978d263bb5c84b2830a494f8ab"
     },
     {
-      "name": "amcore-0.1.4-linux-amd64.zip",
+      "name": "amcore-0.2.0-linux-amd64.zip",
       "platform": "linux-amd64",
-      "size": 10212813,
-      "sha256": "de47cf30e53f5cdcc5d84fc7bdb5eaeb1a60973b40ed2e0e5224decf85250d84"
+      "size": 16775905,
+      "sha256": "e5ab0c267f7f9837a453fd2dc15ab821a14f4b5e2f307e59ed7b116b55b64f18"
     }
   ]
 }
