@@ -1,6 +1,6 @@
 {
-  "AccountWindow.app/Contents/Info.plist": "b1ee5000468aa4b55d3fb639487781a182b1cfbacf89f118982467e5ac810470",
-  "AccountWindow.app/Contents/MacOS/account-ui": "ce782cdae6d59a6337451414ffc2db5646c20db48db6b987dcbc161807fb40c7",
+  "AccountWindow.app/Contents/Info.plist": "f3c08eef9c808180005b689dec02309cc470231f8453a317a6b8c6db5a08a2d6",
+  "AccountWindow.app/Contents/MacOS/account-ui": "839ef30bc00fb9536bd1b19048807aaf949f3e3522f609c8b77dd6fe4faee401",
   "AccountWindow.app/Contents/Resources/Localizations/en.json": "75b69d8f3dd4ba6cb21fae4f70e3e6554f009a07af06268220e38d779ad2b391",
   "AccountWindow.app/Contents/Resources/Localizations/zh-Hans.json": "9a10943fdd4d3c45877fc7f49baad50dacad7f02f1ba1a69698a53ef166a460f",
   "AccountWindow.app/Contents/_CodeSignature/CodeResources": "bd02c262daca8185c3ebdcfbc6ea18db7bd786513c379dc5b7f9565499f237f7",

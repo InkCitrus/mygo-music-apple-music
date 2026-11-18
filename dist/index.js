@@ -128,14 +128,29 @@ function isCurrentNativePlay(generation) {
 function finishNativeLoading(generation) {
   if (isCurrentNativePlay(generation)) loading = false;
 }
-async function nativePlay(meta, position, generation) {
-  const id = meta.catalogId || meta.id;
-  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
-  const requestedQuality = String(host.setting("audioQuality") || "hires").toLowerCase();
-  const quality = requestedQuality === "lossless" ? "lossless" : "hires";
+function selectedQuality() {
+  return String(host.setting("audioQuality")).toLowerCase() === "lossless" ? "lossless" : "hires";
+}
+async function nativePlay(requested, id, position, generation, nextId2) {
   if (!isCurrentNativePlay(generation)) return;
-  await nativeCommand("play", { trackId: id, position, quality });
-  if (isCurrentNativePlay(generation)) mapping = { requested: meta.id, catalog: id };
+  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
+  const c = connect();
+  await c.ready;
+  if (c.play) await c.play.catch(() => {
+  });
+  if (!isCurrentNativePlay(generation)) return;
+  if (connection !== c) throw error("unavailable", "Native playback connection closed");
+  const quality = selectedQuality();
+  const play = c.play = send(c, "play", { trackId: id, position, quality, nextTrackId: nextId2 === id ? void 0 : nextId2 });
+  try {
+    await play;
+    if (connection === c) mapping = { requested, catalog: id, quality };
+  } finally {
+    if (c.play === play) c.play = void 0;
+  }
+}
+async function nativeSeek(position) {
+  await nativeCommand("seek", { position, quality: mapping?.quality ?? selectedQuality() });
 }
 async function nativeState() {
   if (!connection || loading) return null;
@@ -2494,19 +2509,29 @@ async function lyrics(options) {
   }
   return {};
 }
+function isRadioId(id) {
+  return id.startsWith("ra.") || APPLE_MUSIC_LIVE_STATIONS.some((station) => station.id === id);
+}
+function knownCatalogId(id) {
+  if (isRadioId(id)) return;
+  if (/^\d{1,24}$/.test(id)) return id;
+  const catalogId = trackMetaCache.get(id)?.catalogId;
+  if (catalogId && /^\d{1,24}$/.test(catalogId)) return catalogId;
+}
 async function remotePlay(options) {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
   const start = Math.max(0, Math.trunc(Number(options?.start) || 0));
   const position = Math.max(0, Number(options?.position) || 0);
-  const targetId = ids[start];
+  const targetId = String(ids[start] || "").trim();
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
-  if (String(targetId).trim().startsWith("ra.")) {
+  if (isRadioId(targetId)) {
     throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
   }
   const generation = beginNativePlay();
   try {
-    const meta = await resolveTrackMeta(String(targetId));
-    if (isCurrentNativePlay(generation)) await nativePlay(meta, Math.round(position), generation);
+    const catalogId = knownCatalogId(targetId) || (await resolveTrackMeta(targetId)).catalogId || targetId;
+    const nextId2 = knownCatalogId(String(ids[start + 1] || "").trim());
+    await nativePlay(targetId, catalogId, Math.round(position), generation, nextId2);
   } finally {
     finishNativeLoading(generation);
   }
@@ -2520,7 +2545,7 @@ async function remoteResume() {
 async function remoteSeek(options) {
   const position = Number(options?.position);
   if (!Number.isFinite(position) || position < 0) throw fail("unavailable", "Invalid position");
-  await nativeCommand("seek", { position: Math.round(position) });
+  await nativeSeek(Math.round(position));
 }
 async function remoteVolume(options) {
   const percent = Number(options?.percent);
@@ -2863,7 +2888,7 @@ async function account() {
 }
 async function setSetting(options) {
   const { key, value } = options || {};
-  if (key === "audioQuality" && value !== "hires" && value !== "lossless") throw fail("unsupported", tr("The native core supports lossless and hires ALAC quality"));
+  if (key === "audioQuality" && !["", "hires", "lossless"].includes(value)) throw fail("unsupported", tr("Choose an available lossless quality"));
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);
   }
@@ -2887,9 +2912,6 @@ async function setSetting(options) {
     } catch {
     }
     return;
-  }
-  if (key === "audioQuality") {
-    await nativeCommand("quality", { quality: value });
   }
 }
 export {

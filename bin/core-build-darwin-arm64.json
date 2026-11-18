@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/InkCitrus/apple-music-native-core",
-  "commit": "b319c3bad8bdb7f762a21d1d7bce9efd3eb646b8",
+  "commit": "0db6dc0c39c4b9f22037f2e4e4c9059b8d818f5b",
   "sourceDirty": false,
   "protocol": 1,
   "dependencySources": {
@@ -14,9 +14,9 @@
   "sha256": {
     "LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
     "THIRD_PARTY.md": "7b8f5dc915d96e0776e55a4bb6bb8862e6c33e82b4fa0ebdeab74dafde644fd0",
-    "amcore": "c363ec56290cd0ab674791a0f96b11a7b2cf2c68bd49c4dc245e0b09e1d165a9",
-    "amcore-demo": "412bb9fb07333de2fbc63c664e0452fb67720cfad5bc671f48fa6bb55d863475",
-    "corresponding-source.tar.gz": "74c8c650cff7cc462b5e74da0750167d44ec6864f7ce2e81e7c7569174fec9cd",
+    "amcore": "0b58713cad0f9aff95a3e36f1577ae6478267ea2f2b4592e91e0136a64a36194",
+    "amcore-demo": "4868a95cb13bcedfe96e690052c0019955145ec2357840c12ba697f144a540d9",
+    "corresponding-source.tar.gz": "96fdde5a782b65d043ce2b76a6d0ae82b8b8732e92db51af99210757985f1fcb",
     "licenses/LICENSE": "78e7a5bbd08e0c9d8224cd1ca41d11e1d04e63e3e57b57052fa8196792d0b2f6",
     "licenses/LICENSE.Adam": "47f5b57f5f50098e9ec9391db6bcc2305f409b746cd8066c54647a4fbf0c8dbe",
     "licenses/LICENSE.Apache2": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -34,12 +34,12 @@
     "licenses/macos/android-linker.txt": "238446c747e74654ab4819f71e5be3f223605864897762e6df41047c370f0b5e",
     "licenses/macos/mc-epoll-shim.txt": "9d06735b690d68e0953a704d0764f93608f5630237c8a5cb23679fe69f4a1b6b",
     "licenses/macos/mc-logger.txt": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd",
-    "native/darwin-arm64/AccountWindow.app/Contents/Info.plist": "b1ee5000468aa4b55d3fb639487781a182b1cfbacf89f118982467e5ac810470",
-    "native/darwin-arm64/AccountWindow.app/Contents/MacOS/account-ui": "ce782cdae6d59a6337451414ffc2db5646c20db48db6b987dcbc161807fb40c7",
+    "native/darwin-arm64/AccountWindow.app/Contents/Info.plist": "f3c08eef9c808180005b689dec02309cc470231f8453a317a6b8c6db5a08a2d6",
+    "native/darwin-arm64/AccountWindow.app/Contents/MacOS/account-ui": "839ef30bc00fb9536bd1b19048807aaf949f3e3522f609c8b77dd6fe4faee401",
     "native/darwin-arm64/AccountWindow.app/Contents/Resources/Localizations/en.json": "75b69d8f3dd4ba6cb21fae4f70e3e6554f009a07af06268220e38d779ad2b391",
     "native/darwin-arm64/AccountWindow.app/Contents/Resources/Localizations/zh-Hans.json": "9a10943fdd4d3c45877fc7f49baad50dacad7f02f1ba1a69698a53ef166a460f",
     "native/darwin-arm64/AccountWindow.app/Contents/_CodeSignature/CodeResources": "bd02c262daca8185c3ebdcfbc6ea18db7bd786513c379dc5b7f9565499f237f7",
-    "native/darwin-arm64/manifest.json": "2f9b33a9ce74535a7d09d5aeb785b1d686951c7850cd1807d9c465570bfcd965",
+    "native/darwin-arm64/manifest.json": "9007ee13fde9232f54f3a00c3eb5aca48084b5d758ca0049bf62236e8e0a4801",
     "native/darwin-arm64/native-helper": "6538b548e658d640b41873701ecdb22b672039f467ca904e8549cb706b8a7d72"
   }
 }
