@@ -41,6 +41,20 @@ test("library identity survives the catalog mapping", async () => {
   assert.equal((await plugin.remoteState()).trackId, "i.native-test");
 });
 
+test("catalog queue starts without a metadata request and hints only the immediate next song", async () => {
+  globalThis.host = createHost();
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new Error("Catalog fixture is offline"); };
+  await plugin.remotePlay({ ids: ["901000", "901001", "901002", "901003"], start: 1 });
+  await plugin.remotePlay({ ids: ["901002", "i.uncached-hint", "901003"] });
+  await plugin.remotePlay({ ids: ["901003", "ra.978194965", "901004"] });
+  assert.equal(requests, 0);
+  const plays = commands(host).filter(c => c.method === "play");
+  assert.deepEqual(plays.map(c => [c.params.trackId, c.params.nextTrackId]), [
+    ["901001", "901002"], ["901002", undefined], ["901003", undefined],
+  ]);
+});
+
 test("rejects unsupported architectures and unavailable track types without fallback", async () => {
   globalThis.host = createHost({ platform: "darwin", arch: "amd64" });
   await assert.rejects(plugin.remoteResume(), e => e.code === "unsupported");
@@ -110,24 +124,25 @@ test("a station API error is retained instead of becoming a fake track", async (
   assert.deepEqual(await plugin.remoteState(), before);
 });
 
-test("a rejected station does not cancel a song whose metadata is still loading", async () => {
+test("a rejected station does not cancel a library song whose metadata is still loading", async () => {
   globalThis.host = createHost();
+  await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
   let release, requested;
   const gate = new Promise(resolve => { release = resolve; });
   const started = new Promise(resolve => { requested = resolve; });
   const fetch = globalThis.fetch;
   globalThis.fetch = async (...args) => {
-    if (String(args[0]).includes("/songs/901217")) { requested(); await gate; }
+    if (String(args[0]).includes("/songs/i.radio-pending")) { requested(); await gate; }
     return fetch(...args);
   };
-  const song = plugin.remotePlay({ ids: ["901217"] });
+  const song = plugin.remotePlay({ ids: ["i.radio-pending"] });
   await started;
   try {
     await assert.rejects(plugin.remotePlay({ ids: ["ra.978194965"] }), e => e.code === "unsupported");
   } finally { release(); }
   await song;
-  assert.deepEqual(commands(host).filter(c => c.method === "play").map(c => c.params.trackId), ["901217"]);
-  assert.equal((await plugin.remoteState()).trackId, "901217");
+  assert.deepEqual(commands(host).filter(c => c.method === "play").map(c => c.params.trackId), ["901001"]);
+  assert.equal((await plugin.remoteState()).trackId, "i.radio-pending");
 });
 
 test("process permission failure is actionable", async () => {
@@ -145,14 +160,38 @@ test("account window receives the host language and client identity", async () =
 
 test("ignores stale metadata after a newer play request", async () => {
   globalThis.host = createHost(); let release;
+  await host.storage.set("auth", { mediaUserToken: "SYNTHETIC" });
   const pending = new Promise(resolve => { release = resolve; });
   const fetch = globalThis.fetch;
-  globalThis.fetch = async (...args) => { if (String(args[0]).includes("/songs/901123")) await pending; return fetch(...args); };
-  const old = plugin.remotePlay({ ids: ["901123"] });
+  globalThis.fetch = async (...args) => { if (String(args[0]).includes("/songs/i.stale-pending")) await pending; return fetch(...args); };
+  const old = plugin.remotePlay({ ids: ["i.stale-pending"] });
   assert.equal(await plugin.remoteState(), null);
   await plugin.remotePlay({ ids: ["901124"] }); release(); await old;
   const plays = commands(host).filter(x => x.method === "play");
   assert.equal(plays.length, 1); assert.equal(plays[0].params.trackId, "901124");
+});
+
+test("rapid skips preserve command order and drop an intermediate selection", async () => {
+  globalThis.host = createHost();
+  let release, started;
+  const first = new Promise(resolve => { started = resolve; });
+  const wait = new Promise(resolve => { release = resolve; });
+  host._setNativeBehavior(async request => {
+    if (request.method === "hello") return { protocol: 1 };
+    if (request.params.trackId === "901040") { started(); await wait; }
+    return true;
+  });
+  const original = plugin.remotePlay({ ids: ["901040"] });
+  await first;
+  const skipped = plugin.remotePlay({ ids: ["901041"] });
+  const latest = plugin.remotePlay({ ids: ["901042"] });
+  await new Promise(resolve => setImmediate(resolve));
+  const played = () => commands(host).filter(c => c.method === "play").map(c => c.params.trackId);
+  try {
+    assert.deepEqual(played(), ["901040"]);
+  } finally { release(); }
+  await Promise.all([original, skipped, latest]);
+  assert.deepEqual(played(), ["901040", "901042"]);
 });
 
 test("core failure and protocol mismatch do not expose diagnostic text", async () => {
@@ -167,11 +206,21 @@ test("core failure and protocol mismatch do not expose diagnostic text", async (
 test("native quality, system output and manifest replace old control permissions", async () => {
   globalThis.host = createHost();
   await plugin.setSetting({ key: "audioQuality", value: "lossless" });
+  assert.equal(host._getSpawnHistory().length, 0);
   await plugin.remotePlay({ ids: ["901001"] });
-  assert.equal(commands(host).find(x => x.method === "play").params.quality, "lossless");
+  await plugin.setSetting({ key: "audioQuality", value: "" });
+  await plugin.remoteSeek({ position: 12000 });
+  await plugin.remotePlay({ ids: ["901002"] });
+  assert.deepEqual(commands(host).filter(c => ["play", "seek", "quality"].includes(c.method)).map(c => [c.method, c.params.quality]), [
+    ["play", "lossless"], ["seek", "lossless"], ["play", "hires"],
+  ]);
   assert.deepEqual((await plugin.remoteDevices()).map(d => d.id), ["default"]);
   await assert.rejects(plugin.remoteUse({ deviceId: "airplay-old-device" }), e => e.code === "unsupported");
   const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json", import.meta.url)));
+  const quality = manifest.settings.find(x => x.key === "audioQuality");
+  assert.equal(quality.type, "select");
+  const zh = JSON.parse(fs.readFileSync(new URL("../locales/zh-CN.json", import.meta.url)));
+  for (const phrase of [quality.label, quality.help, ...quality.options.map(o => o.label)]) assert.ok(zh[phrase]);
   assert.deepEqual(manifest.permissions.process, ["bin/apple-music-core-*"]);
   assert.ok(!manifest.settings.some(x => x.key === "playbackBackend" || x.key === "crossfadeTip"));
 });

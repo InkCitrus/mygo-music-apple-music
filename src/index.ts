@@ -20,7 +20,7 @@ import {
   Stream,
   Track,
 } from "./types.js";
-import { CachedTrackMeta, nativeCommand, nativePlay, nativeState, nativeDevices, beginNativePlay, isCurrentNativePlay, finishNativeLoading, resetRemoteSession } from "./native_remote.js";
+import { CachedTrackMeta, nativeCommand, nativePlay, nativeSeek, nativeState, nativeDevices, beginNativePlay, finishNativeLoading, resetRemoteSession } from "./native_remote.js";
 import { parseAppleTTML } from "./lyrics.js";
 export * from "./types.js";
 export { parseAppleTTML, parseTtmlTimestamp } from "./lyrics.js";
@@ -2695,19 +2695,31 @@ export async function lyrics(options: { id: string }): Promise<Lyrics> {
 // Full-track playback through the independent native core (all supported desktops).
 // ============================================================================
 
+function isRadioId(id: string): boolean {
+  return id.startsWith("ra.") || APPLE_MUSIC_LIVE_STATIONS.some((station) => station.id === id);
+}
+
+function knownCatalogId(id: string): string | undefined {
+  if (isRadioId(id)) return;
+  if (/^\d{1,24}$/.test(id)) return id;
+  const catalogId = trackMetaCache.get(id)?.catalogId;
+  if (catalogId && /^\d{1,24}$/.test(catalogId)) return catalogId;
+}
+
 export async function remotePlay(options: { ids: string[]; start?: number; position?: number; shuffle?: boolean }): Promise<void> {
   const ids = Array.isArray(options?.ids) ? options.ids : [];
   const start = Math.max(0, Math.trunc(Number(options?.start) || 0));
   const position = Math.max(0, Number(options?.position) || 0);
-  const targetId = ids[start];
+  const targetId = String(ids[start] || "").trim();
   if (!targetId) throw fail("unavailable", tr("This track is unavailable for streaming"));
-  if (String(targetId).trim().startsWith("ra.")) {
+  if (isRadioId(targetId)) {
     throw fail("unsupported", tr("Live radio and radio shows are not supported yet"));
   }
   const generation = beginNativePlay();
   try {
-    const meta = await resolveTrackMeta(String(targetId));
-    if (isCurrentNativePlay(generation)) await nativePlay(meta, Math.round(position), generation);
+    const catalogId = knownCatalogId(targetId) || (await resolveTrackMeta(targetId)).catalogId || targetId;
+    const nextId = knownCatalogId(String(ids[start + 1] || "").trim());
+    await nativePlay(targetId, catalogId, Math.round(position), generation, nextId);
   } finally { finishNativeLoading(generation); }
 }
 export async function remotePause(): Promise<void> { await nativeCommand("pause"); }
@@ -2715,7 +2727,7 @@ export async function remoteResume(): Promise<void> { await nativeCommand("resum
 export async function remoteSeek(options: { position: number }): Promise<void> {
   const position = Number(options?.position);
   if (!Number.isFinite(position) || position < 0) throw fail("unavailable", "Invalid position");
-  await nativeCommand("seek", { position: Math.round(position) });
+  await nativeSeek(Math.round(position));
 }
 export async function remoteVolume(options: { percent: number }): Promise<void> {
   const percent = Number(options?.percent);
@@ -3147,7 +3159,7 @@ export async function account(): Promise<Account | null> {
 
 export async function setSetting(options: { key: string; value: string }): Promise<void> {
   const { key, value } = options || {};
-  if (key === "audioQuality" && value !== "hires" && value !== "lossless") throw fail("unsupported", tr("The native core supports lossless and hires ALAC quality"));
+  if (key === "audioQuality" && !["", "hires", "lossless"].includes(value)) throw fail("unsupported", tr("Choose an available lossless quality"));
   if (typeof host !== "undefined" && host._setSetting) {
     host._setSetting(key, value);
   }
@@ -3170,9 +3182,5 @@ export async function setSetting(options: { key: string; value: string }): Promi
       }
     } catch {}
     return;
-  }
-
-  if (key === "audioQuality") {
-    await nativeCommand("quality", { quality: value });
   }
 }

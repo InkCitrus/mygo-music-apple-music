@@ -67,7 +67,10 @@
   "Failed to load album": "加载专辑失败",
   "Failed to load artist": "加载艺人失败",
   "Failed to load playlist": "加载歌单失败",
-  "Native Audio Quality": "原生音质",
+  "Apple Music Playback Quality": "Apple Music 播放音质",
+  "Highest available lossless (default)": "最高可用无损（默认）",
+  "Lossless (up to 48 kHz)": "无损（最高 48 kHz）",
+  "Applies to Apple Music from the next song. Both options use ALAC; output follows system audio settings.": "从下一首 Apple Music 歌曲起生效。两档均为 ALAC，输出遵循系统声音设置。",
   "System Audio Output": "系统音频输出",
   "Select the output device in system audio settings": "请在系统声音设置中选择输出设备",
   "Complete Apple Music sign-in in the native account dialogs": "请在本机账号窗口中完成 Apple Music 登录",
@@ -82,8 +85,7 @@
   "Update the native playback core to a compatible version": "请更新原生播放核心至兼容版本",
   "This track, quality or platform is not supported": "暂不支持此曲目、音质或平台",
   "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable": "原生播放目前支持曲库歌曲，暂不支持电台和自行上传的歌曲",
-  "The native core supports lossless and hires ALAC quality": "原生核心支持 lossless 和 hires 两种 ALAC 音质",
+  "Choose an available lossless quality": "请选择可用的无损音质",
   "This station has no playable catalog songs": "该电台没有可供原生播放的曲库歌曲",
-  "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings.": "hires：最高可用 ALAC 音质；lossless：不超过 48 kHz 的 ALAC。暂不支持直播电台和自行上传的歌曲，输出遵循系统声音设置。",
   "Live radio and radio shows are not supported yet": "暂不支持直播电台和电台节目"
 }

@@ -18,7 +18,7 @@ Supported: Apple Silicon/macOS 14+, Windows x64, and Linux x64/glibc 2.38+ with 
 
 ## Playback and quality
 
-`audioQuality=hires` (default) selects the highest available ALAC variant; `lossless` selects ALAC up to 48 kHz. Changes apply on the next play/seek. No silent AAC or preview fallback occurs in full playback.
+Use **Apple Music Playback Quality** in the plugin settings. **Highest available lossless** (default) selects the highest available ALAC variant; **Lossless (up to 48 kHz)** limits the source sample rate. Changes apply when you start another song. MyGo's global Playback Quality setting applies to sources that supply a stream to MyGo; it doesn't control playback by this plugin's native core.
 
 Play, pause, resume, seek, volume, mute and state polling use the same native interface on all supported desktops. MyGo Music owns queue order. Library songs require a catalog mapping. Recommended stations can play when their feed returns catalog songs. Unsupported station requests leave the current song and queue unchanged. Live radio, uploaded-only tracks, AirPlay device enumeration, exclusive output and cross-track gapless output are not implemented. The separate `stream()` hook remains a preview-only API; full playback uses `remote*` hooks.
 

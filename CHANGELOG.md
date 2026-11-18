@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+Start catalog songs without waiting for a second metadata lookup. Native Core 0.1.4 can prepare the beginning of the next queued song while the current song is playing, then reuse it on a matching skip or queue advance. The host still decides what plays next.
+
+Choose the Apple Music quality in the plugin's native settings dropdown: highest available lossless or lossless up to 48 kHz. A new choice applies from the next song; seeking keeps the current quality.
+
 ## 1.0.3
 
 Reject unsupported live stations and empty or non-song station feeds before MyGo replaces its queue. Remove the old fallback that disguised a station as a zero-duration song. Failed station requests preserve the existing song, playback position and play/pause state; API errors keep their original meaning. Recommended stations that return playable catalog songs continue to work.

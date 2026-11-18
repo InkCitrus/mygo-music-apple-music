@@ -67,7 +67,10 @@
   "Failed to load album": "Failed to load album",
   "Failed to load artist": "Failed to load artist",
   "Failed to load playlist": "Failed to load playlist",
-  "Native Audio Quality": "Native Audio Quality",
+  "Apple Music Playback Quality": "Apple Music Playback Quality",
+  "Highest available lossless (default)": "Highest available lossless (default)",
+  "Lossless (up to 48 kHz)": "Lossless (up to 48 kHz)",
+  "Applies to Apple Music from the next song. Both options use ALAC; output follows system audio settings.": "Applies to Apple Music from the next song. Both options use ALAC; output follows system audio settings.",
   "System Audio Output": "System Audio Output",
   "Select the output device in system audio settings": "Select the output device in system audio settings",
   "Complete Apple Music sign-in in the native account dialogs": "Complete Apple Music sign-in in the native account dialogs",
@@ -82,8 +85,7 @@
   "Update the native playback core to a compatible version": "Update the native playback core to a compatible version",
   "This track, quality or platform is not supported": "This track, quality or platform is not supported",
   "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable": "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable",
-  "The native core supports lossless and hires ALAC quality": "The native core supports lossless and hires ALAC quality",
+  "Choose an available lossless quality": "Choose an available lossless quality",
   "This station has no playable catalog songs": "This station has no playable catalog songs",
-  "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings.": "hires: highest available ALAC quality. lossless: ALAC up to 48 kHz. Live radio and uploaded songs are currently unavailable. Output follows system audio settings.",
   "Live radio and radio shows are not supported yet": "Live radio and radio shows are not supported yet"
 }

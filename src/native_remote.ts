@@ -14,11 +14,11 @@ export interface CachedTrackMeta {
 }
 
 type Pending = { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
-type Connection = { proc: ProcessHandle; owner: typeof host; pending: Map<number, Pending>; ready: Promise<void>; healthAt: number };
+type Connection = { proc: ProcessHandle; owner: typeof host; pending: Map<number, Pending>; ready: Promise<void>; play?: Promise<any>; healthAt: number };
 let connection: Connection | null = null;
 let nextId = 0;
 let playGeneration = 0;
-let mapping: { requested: string; catalog: string } | null = null;
+let mapping: { requested: string; catalog: string; quality: "hires" | "lossless" } | null = null;
 let loading = false;
 
 function error(code: "signIn" | "setup" | "unsupported" | "unavailable", message: string): Error {
@@ -92,17 +92,32 @@ export async function nativeCommand(method: string, params: Record<string, any> 
 }
 
 export function beginNativePlay(): number { if (connection && connection.owner !== host) disconnect(connection); loading = true; return ++playGeneration; }
-export function isCurrentNativePlay(generation: number): boolean { return generation === playGeneration; }
+function isCurrentNativePlay(generation: number): boolean { return generation === playGeneration; }
 export function finishNativeLoading(generation: number): void { if (isCurrentNativePlay(generation)) loading = false; }
 
-export async function nativePlay(meta: CachedTrackMeta, position: number, generation: number): Promise<void> {
-  const id = meta.catalogId || meta.id;
-  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
-  const requestedQuality = String(host.setting("audioQuality") || "hires").toLowerCase();
-  const quality = requestedQuality === "lossless" ? "lossless" : "hires";
+function selectedQuality(): "hires" | "lossless" {
+  return String(host.setting("audioQuality")).toLowerCase() === "lossless" ? "lossless" : "hires";
+}
+
+export async function nativePlay(requested: string, id: string, position: number, generation: number, nextId?: string): Promise<void> {
   if (!isCurrentNativePlay(generation)) return;
-  await nativeCommand("play", { trackId: id, position, quality });
-  if (isCurrentNativePlay(generation)) mapping = { requested: meta.id, catalog: id };
+  if (!/^\d{1,24}$/.test(id)) throw error("unsupported", "Native playback currently supports catalog songs; radio and uploaded tracks are unavailable");
+  const c = connect(); await c.ready;
+  if (c.play) await c.play.catch(() => {});
+  if (!isCurrentNativePlay(generation)) return;
+  if (connection !== c) throw error("unavailable", "Native playback connection closed");
+  const quality = selectedQuality();
+  const play = c.play = send(c, "play", { trackId: id, position, quality, nextTrackId: nextId === id ? undefined : nextId });
+  try {
+    await play;
+    if (connection === c) mapping = { requested, catalog: id, quality };
+  } finally {
+    if (c.play === play) c.play = undefined;
+  }
+}
+
+export async function nativeSeek(position: number): Promise<void> {
+  await nativeCommand("seek", { position, quality: mapping?.quality ?? selectedQuality() });
 }
 
 export async function nativeState(): Promise<RemoteState | null> {
